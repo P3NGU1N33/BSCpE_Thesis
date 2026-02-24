@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TrendingUp, Calendar, Clock, Navigation, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import Papa from "papaparse";
 import TimelineChart from "./TimelineChart";
@@ -27,7 +27,7 @@ async function loadCsv<T>(path: string): Promise<T[]> {
       header: true,
       skipEmptyLines: true,
       complete: (results) => resolve(results.data),
-      error: (err) => reject(err),
+      error: (err: Error) => reject(err),
     });
   });
 }
