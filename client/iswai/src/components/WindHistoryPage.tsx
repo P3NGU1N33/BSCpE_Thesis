@@ -1,10 +1,97 @@
-import { useState } from 'react';
+import React, { useEffect, useMemo, useState } from "react";
 import { TrendingUp, Calendar, Clock, Navigation, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
+import Papa from "papaparse";
+import TimelineChart from "./TimelineChart";
+
+type Year = 2022 | 2023 | 2024 | 2025;
+
+type WindSpeedRow = {
+  datetime: string;
+  windspeed: string;
+  pred_windspeed: string;
+};
+
+type WindDirRow = {
+  datetime: string;
+  winddir: string;
+  pred_winddir: string;
+};
+
+async function loadCsv<T>(path: string): Promise<T[]> {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`Failed to fetch ${path}`);
+  const text = await res.text();
+
+  return new Promise((resolve, reject) => {
+    Papa.parse<T>(text, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => resolve(results.data),
+      error: (err) => reject(err),
+    });
+  });
+}
 
 
 export function WindHistoryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('date-desc');
+  const [year, setYear] = useState<Year>(2025);
+  const [speedRaw, setSpeedRaw] = useState<WindSpeedRow[]>([]);
+  const [dirRaw, setDirRaw] = useState<WindDirRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    Promise.all([
+      loadCsv<WindSpeedRow>(`/data/windspeed_${year}_pred.csv`),
+      loadCsv<WindDirRow>(`/data/winddirection_${year}_pred.csv`),
+    ])
+      .then(([s, d]) => {
+        if (!alive) return;
+        setSpeedRaw(s);
+        setDirRaw(d);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setErr(e?.message ?? "Failed to load CSV");
+      })
+      .finally(() => {
+        if (!alive) return;
+        setLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [year]);
+
+  // Recharts wants numeric x-axis (timestamp)
+  const speedData = useMemo(() => {
+    return speedRaw
+      .map((r) => {
+        const t = new Date(r.datetime).getTime();
+        const actual = Number(r.windspeed);
+        const pred = Number(r.pred_windspeed);
+        if (!Number.isFinite(t) || !Number.isFinite(actual) || !Number.isFinite(pred)) return null;
+        return { t, windspeed: actual, pred_windspeed: pred };
+      })
+      .filter((item): item is { t: number; windspeed: number; pred_windspeed: number } => item !== null);
+  }, [speedRaw]);
+
+  const dirData = useMemo(() => {
+    return dirRaw
+      .map((r) => {
+        const t = new Date(r.datetime).getTime();
+        const actual = Number(r.winddir);
+        const pred = Number(r.pred_winddir);
+        if (!Number.isFinite(t) || !Number.isFinite(actual) || !Number.isFinite(pred)) return null;
+        return { t, winddir: actual, pred_winddir: pred };
+      })
+      .filter((item): item is { t: number; winddir: number; pred_winddir: number } => item !== null);
+  }, [dirRaw]);
   
   const itemsPerPage = 10;
 
@@ -222,7 +309,59 @@ export function WindHistoryPage() {
           </div>
         </div>
       </div>
-      
+      {/* Charts Sections */}
+      <div className="p-4">
+      <div className="flex items-center gap-3 mb-4">
+        <h2 style={{ backgroundColor: '#0062a4' }} className="rounded-xl p-5 shadow-lg text-white">Wind History</h2>
+
+        <select
+          value={year}
+          onChange={(e) => setYear(Number(e.target.value) as Year)}
+          style={{ backgroundColor: '#0062a4' }} className="rounded-xl p-3 shadow-lg text-white"
+        >
+          <option value={2022}>2022</option>
+          <option value={2023}>2023</option>
+          <option value={2024}>2024</option>
+          <option value={2025}>2025</option>
+        </select>
+
+        {loading && <span className="text-sm">Loading…</span>}
+        {err && <span className="text-sm text-red-600">{err}</span>}
+      </div>
+
+      {/* WIND SPEED */}
+      <div className="mb-10">
+        <h3 className="text-lg font-semibold mb-2">Wind Speed (Actual vs Predicted)</h3>
+        <TimelineChart
+          data={speedData}
+          series={{
+            actualKey: "windspeed",
+            predKey: "pred_windspeed",
+            actualLabel: "Actual",
+            predLabel: "Predicted",
+            yLabel: "Wind Speed (km/h)",
+          }}
+          height={420}
+        />
+      </div>
+
+      {/* WIND DIRECTION */}
+      <div>
+        <h3 className="text-lg font-semibold mb-2">Wind Direction (Actual vs Predicted)</h3>
+        <TimelineChart
+          data={dirData}
+          series={{
+            actualKey: "winddir",
+            predKey: "pred_winddir",
+            actualLabel: "Actual",
+            predLabel: "Predicted",
+            yLabel: "Wind Direction (°)",
+          }}
+          height={420}
+        />
+      </div>
+    </div>
+
     </div>
   );
 }
