@@ -63,7 +63,7 @@ export default function TimelineChart({ data, series, height = 400 }: Props) {
             height={80}
             tick={{ fill: "#000000", fontSize: 12 }}  //black ticks
             stroke="#000000"                           //black axis line
-            interval="preserveStartEnd" // shows all labels (if too many, see note below)
+            interval= "preserveStartEnd" // shows all labels (if too many, see note below)
           />
 
           {/* Y Axis */}
