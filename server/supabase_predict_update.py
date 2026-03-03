@@ -216,3 +216,6 @@ def predict_missing_rows(limit_rows: int = 5000, upsert_batch: int = 200):
 
 if __name__ == "__main__":
     print(predict_missing_rows(limit_rows=5000, upsert_batch=200))
+
+
+
