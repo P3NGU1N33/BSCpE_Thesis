@@ -58,13 +58,14 @@ def add_winddir_lag_roll_features(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-def sincos_to_deg(sin_v: float, cos_v: float) -> float:
+def sincos_to_deg(sin_v: np.ndarray, cos_v: np.ndarray) -> np.ndarray:
     ang = np.degrees(np.arctan2(sin_v, cos_v))
-    return float((ang + 360) % 360)
+    return (ang + 360) % 360
 
-def normalize_unit_circle(sin_v: float, cos_v: float):
-    mag = np.sqrt(sin_v * sin_v + cos_v * cos_v)
-    return float(sin_v / (mag + 1e-9)), float(cos_v / (mag + 1e-9))
+
+def normalize_unit_circle(sin_v: np.ndarray, cos_v: np.ndarray):
+    mag = np.sqrt(sin_v**2 + cos_v**2)
+    return sin_v / (mag + 1e-9), cos_v / (mag + 1e-9)
 
 #WIND SPEED FEATURES
 def add_windspeed_lag_roll_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -91,37 +92,42 @@ def add_windspeed_lag_roll_features(df: pd.DataFrame) -> pd.DataFrame:
 
 #SUPABASE I/0
 
-def fetch_latest_rows(supabase, limit_rows: int = 80) -> pd.DataFrame:
-    # fetch newest N by datetime desc, then reverse for ascending
-    resp = (
+# ------------------ SUPABASE HELPERS ------------------
+def fetch_rows(supabase, limit_rows: int):
+    # Ascending by time so lags work correctly
+    res = (
         supabase.table(TABLE)
         .select("*")
-        .order("timestamp", desc=True)
+        .order(TIME_COL, desc=False)
         .limit(limit_rows)
         .execute()
     )
-
-    rows = resp.data or []
+    rows = res.data or []
     if not rows:
-        raise RuntimeError("No rows returned from Supabase.")
-
-    df = pd.DataFrame(rows)
-    # Keep a copy of "latest row" info (top row is newest)
-    # Then reverse for feature engineering
-    df = df.iloc[::-1].reset_index(drop=True)
-    return df
+        raise RuntimeError("No rows fetched from Supabase.")
+    return pd.DataFrame(rows)
 
 
-# def update_row_prediction(supabase, pk_value, pred_windspeed: float, pred_winddir: float, pred_timestamp: str):
-#     payload = {
-#         "pred_windspeed": float(pred_windspeed),
-#         "pred_winddir": float(pred_winddir),
-#         "pred_timestamp": pred_timestamp,
-#     }
-#     supabase.table(TABLE).update(payload).eq(PK_COL, pk_value).execute()
+def update_rows(supabase, updates, batch_size: int = 200):
+    for i in range(0, len(updates), batch_size):
+        chunk = updates[i:i + batch_size]
+
+        for row in chunk:
+            pk_val = row[PK_COL]
+
+            payload = {
+                "pred_timestamp": row["pred_timestamp"],
+                "pred_windspeed": row["pred_windspeed"],
+                "pred_winddir": row["pred_winddir"],
+            }
+
+            supabase.table(TABLE).update(payload).eq(PK_COL, pk_val).execute()
+
+        print(f"[OK] Updated {i+len(chunk)}/{len(updates)} rows")
+
 
 #MAIN PIPELINE
-def predict_latest_and_update(limit_rows: int = 80):
+def predict_missing_rows(limit_rows: int = 5000, upsert_batch: int = 200):
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise RuntimeError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env")
 
@@ -131,79 +137,82 @@ def predict_latest_and_update(limit_rows: int = 80):
     ws_bundle = joblib.load(WINDSPEED_MODEL_PATH)
     wd_bundle = joblib.load(WINDDIR_MODEL_PATH)
 
-    # Pull rows
-    df = fetch_latest_rows(supabase, limit_rows=limit_rows)
-    # Identify latest row PK (from original newest row)
-    # Since we reversed df, the latest row is now at the end.
-    latest_row = df.iloc[-1]
-    if PK_COL not in df.columns:
-        raise RuntimeError(f"Primary key column '{PK_COL}' not found in Supabase result.")
-    latest_pk = latest_row[PK_COL]
-     
-    # Build features
-    df = add_datetime_features(df)
-
-    # compute pred timestamp = latest timestamp + 1 hour
-    latest_dt = pd.to_datetime(latest_row[TIME_COL], utc=True, errors="coerce")
-    pred_dt = latest_dt + pd.Timedelta(hours=1)
-
-    # ---------- windspeed prediction ----------
-    df_ws = add_windspeed_lag_roll_features(df)
     ws_feature_cols = ws_bundle["feature_cols"]
-
-    # pick the last row with complete features
-    df_ws2 = df_ws.dropna(subset=ws_feature_cols).copy()
-    if df_ws2.empty:
-        raise RuntimeError("Not enough rows to compute windspeed lag/rolling features. Increase limit_rows.")
-    last_ws = df_ws2.iloc[-1:][ws_feature_cols].to_numpy()
-
-    rf = ws_bundle["rf"]
-    xgb_model = ws_bundle["xgb"]
-    w = ws_bundle.get("weights", {"rf": 0.5, "xgb": 0.5})
-    w_rf, w_xgb = w["rf"], w["xgb"]
-
-    ws_pred = (w_rf * rf.predict(last_ws)) + (w_xgb * xgb_model.predict(last_ws))
-    ws_pred = float(ws_pred[0])
-
-    # ---------- winddir prediction ----------
-    df_wd = add_winddir_lag_roll_features(df)
     wd_feature_cols = wd_bundle["feature_cols"]
 
-    df_wd2 = df_wd.dropna(subset=wd_feature_cols).copy()
-    if df_wd2.empty:
-        raise RuntimeError("Not enough rows to compute winddir lag/rolling features. Increase limit_rows.")
-    last_wd = df_wd2.iloc[-1:][wd_feature_cols].to_numpy()
+    rf_ws = ws_bundle["rf"]
+    xgb_ws = ws_bundle["xgb"]
+    w_ws = ws_bundle.get("weights", {"rf": 0.5, "xgb": 0.5})
+    w_rf_ws, w_xgb_ws = w_ws["rf"], w_ws["xgb"]
 
     rf_sin = wd_bundle["rf_sin"]
     rf_cos = wd_bundle["rf_cos"]
     xgb_sin = wd_bundle["xgb_sin"]
     xgb_cos = wd_bundle["xgb_cos"]
 
-    # Your yearly script uses simple average ensemble
-    sin_pred = (rf_sin.predict(last_wd) + xgb_sin.predict(last_wd)) / 2
-    cos_pred = (rf_cos.predict(last_wd) + xgb_cos.predict(last_wd)) / 2
+    # 1) Fetch rows
+    df = fetch_rows(supabase, limit_rows=limit_rows)
 
-    sin_pred = float(sin_pred[0])
-    cos_pred = float(cos_pred[0])
+    # Safety checks
+    for col in [PK_COL, TIME_COL, "windspeed", "windgust", "winddir"]:
+        if col not in df.columns:
+            raise RuntimeError(f"Missing required column in table: {col}")
 
-    # normalize (prevents weird angles if magnitude not 1)
+    # If these cols don't exist yet, create empty so .isna() works
+    if "pred_windspeed" not in df.columns:
+        df["pred_windspeed"] = np.nan
+    if "pred_winddir" not in df.columns:
+        df["pred_winddir"] = np.nan
+
+    # 2) Build features
+    df = add_datetime_features(df)
+    df_ws = add_windspeed_lag_roll_features(df)
+    df_wd = add_winddir_lag_roll_features(df)
+
+    # 3) Decide which rows are eligible
+    ws_ok = df_ws[ws_feature_cols].notna().all(axis=1)
+    wd_ok = df_wd[wd_feature_cols].notna().all(axis=1)
+
+    # only predict rows where at least one prediction is missing
+    missing_pred = df["pred_windspeed"].isna() | df["pred_winddir"].isna()
+
+    eligible = ws_ok & wd_ok & missing_pred
+    idxs = df.index[eligible].tolist()
+
+    if not idxs:
+        return {"ok": True, "updated": 0, "message": "No missing predictions found."}
+
+    # 4) Predict in one shot (vectorized)
+    X_ws = df_ws.loc[idxs, ws_feature_cols].to_numpy()
+    ws_pred = (w_rf_ws * rf_ws.predict(X_ws)) + (w_xgb_ws * xgb_ws.predict(X_ws))
+
+    X_wd = df_wd.loc[idxs, wd_feature_cols].to_numpy()
+    sin_pred = (rf_sin.predict(X_wd) + xgb_sin.predict(X_wd)) / 2
+    cos_pred = (rf_cos.predict(X_wd) + xgb_cos.predict(X_wd)) / 2
+
     sin_pred, cos_pred = normalize_unit_circle(sin_pred, cos_pred)
     wd_pred = sincos_to_deg(sin_pred, cos_pred)
 
-    # update latest row with predictions + prediction timestamp
-    payload = {
-        "pred_timestamp": pred_dt.isoformat(),
-        "pred_windspeed": ws_pred,
-        "pred_winddir": wd_pred,
-    }
+    # 5) Build update payloads
+    updates = []
+    for i, row_idx in enumerate(idxs):
+        pk_val = df.loc[row_idx, PK_COL]
 
-    supabase.table(TABLE).update(payload).eq(PK_COL, latest_pk).execute()
+        ts_val = pd.to_datetime(df.loc[row_idx, TIME_COL], utc=True, errors="coerce")
+        pred_ts = (ts_val + pd.Timedelta(hours=1)).isoformat() if pd.notna(ts_val) else None
 
-    return {"ok": True, "updated_id": int(latest_pk), **payload}
+        updates.append({
+            PK_COL: int(pk_val),
+            "pred_timestamp": pred_ts,
+            "pred_windspeed": float(ws_pred[i]),
+            "pred_winddir": float(wd_pred[i]),
+        })
+
+    # 6) Update rows
+    update_rows(supabase, updates, batch_size=upsert_batch)
+
+    return {"ok": True, "updated": len(updates)}
 
 
 if __name__ == "__main__":
-    print(predict_latest_and_update(limit_rows=80))
-
-
-
+    print(predict_missing_rows(limit_rows=5000, upsert_batch=200))
