@@ -239,15 +239,15 @@ function App() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 text-xs">
                       <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                      <span className="text-gray-700"><span className="text-green-700">Safe:</span> 0–8 m/s</span>
+                      <span className="text-gray-700"><span className="text-green-700">Safe:</span> 0–28.8 km/h</span>
                     </div>
                     <div className="flex items-center gap-2 text-xs">
                       <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
-                      <span className="text-gray-700"><span className="text-yellow-700">Moderate:</span> 9–21 m/s</span>
+                      <span className="text-gray-700"><span className="text-yellow-700">Moderate:</span> 32.4–75.6 km/h</span>
                     </div>
                     <div className="flex items-center gap-2 text-xs">
                       <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                      <span className="text-gray-700"><span className="text-red-700">Unsafe:</span> ≥22 m/s</span>
+                      <span className="text-gray-700"><span className="text-red-700">Unsafe:</span> ≥80 km/h</span>
                     </div>
                   </div>
                 </div>
