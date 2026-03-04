@@ -1,15 +1,81 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { WindPredictionCard } from './components/WindPredictionCard';
 import { WindHistoryPanel } from './components/WindHistoryPanel';
 import { WindTipsPanel } from './components/WindTipsPanel';
 import { WindMainTipsPanel } from './components/WindMainTipsPanel';
 import { WindHistoryPage } from './components/WindHistoryPage';
 import { Navigation } from 'lucide-react';
+import type { HighestWind } from "./types/wind";
+import { safeDatePartsUTC } from "./utils/wind";
 import iswaiLogo from './assets/iSWAI_logo.png';
 import schoolLogo from './assets/UC_logo.png';
 
+interface HistoryRow {
+  id: number;
+  timestamp: string;
+  windspeed: string | number;
+  pred_windspeed: string | number | null;
+  winddir: string | number;
+  pred_winddir: string | number | null;
+}
+
 function App() {
   const [activeNav, setActiveNav] = useState('Wind Alert');
+  //For Fetching
+  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
+
+  useEffect(() => {
+  let alive = true;
+
+    const load = async () => {
+      try {
+        setHistoryLoading(true);
+        setHistoryErr(null);
+
+        await fetch("http://127.0.0.1:8000/predict/latest", { method: "POST" });
+
+        const r = await fetch("http://127.0.0.1:8000/history?limit=2000&order=desc");
+        if (!r.ok) throw new Error("Failed to load history");
+
+        const data = await r.json();
+        if (!alive) return;
+        setHistoryRows(data.rows ?? []);
+      } catch (e: unknown) {
+        if (!alive) return;
+        setHistoryErr(e instanceof Error ? e.message : "Failed to load history");
+      } finally {
+        if (alive) setHistoryLoading(false);
+      }
+    };
+
+    load();
+    const timer = setInterval(load, 1800000); // every 30 mins
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
+
+  const highestWind: HighestWind | null = useMemo(() => {
+    if (!historyRows.length) return null;
+
+    let best: HighestWind | null = null;
+
+    for (const r of historyRows) {
+      const speed = Number(r.windspeed);
+      if (!Number.isFinite(speed)) continue;
+
+      const dt = safeDatePartsUTC(r.timestamp);
+      if (!dt.valid) continue;
+
+      const dirDeg = Number(r.winddir);
+      const directionDeg = Number.isFinite(dirDeg) ? dirDeg : 0;
+
+      if (!best || speed > best.speed) {
+        best = { speed, date: dt.date, time: dt.time, directionDeg };
+      }
+    }
+    return best;
+  }, [historyRows]);
 
   // Mock data for current conditions
   const currentWind = {
@@ -148,7 +214,12 @@ function App() {
 
             {/* Right Column - History & Tips */}
             <div className="lg:col-span-2 flex flex-col space-y-3">
-              <WindHistoryPanel onNavigate={() => handleNavClick('Wind History')} />
+              <WindHistoryPanel
+                onNavigate={() => handleNavClick("Wind History")}
+                highestWind={highestWind}
+                loading={historyLoading}
+                error={historyErr}
+              />
               <div className="flex-1">
                 <WindMainTipsPanel onNavigate={() => handleNavClick('Wind Tips')} />
               </div>
@@ -156,7 +227,14 @@ function App() {
           </div>
         )}
 
-        {activeNav === 'Wind History' && <WindHistoryPage />}
+        {activeNav === "Wind History" && (
+          <WindHistoryPage
+            apiRows={historyRows}
+            tableLoading={historyLoading}
+            tableErr={historyErr}
+            highestWind={highestWind}
+          />
+        )}
 
         {activeNav === 'Wind Tips' && (
           <div className="max-w-4xl mx-auto">

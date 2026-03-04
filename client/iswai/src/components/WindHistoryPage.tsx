@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { TrendingUp, Calendar, Clock, Navigation, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import Papa from "papaparse";
 import TimelineChart from "./TimelineChart";
+import type { HighestWind } from "../types/wind";
+import { degToCompass } from "../utils/wind";
 
 type Year = 2022 | 2023 | 2024 | 2025;
 
@@ -24,6 +26,13 @@ type ApiRow = {
   pred_windspeed: number | string | null;
   winddir: number | string;
   pred_winddir: number | string | null;
+};
+
+type WindHistoryPageProps = {
+  apiRows: ApiRow[];
+  tableLoading: boolean;
+  tableErr: string | null;
+  highestWind: HighestWind | null;
 };
 
 async function loadCsv<T>(path: string): Promise<T[]> {
@@ -59,8 +68,13 @@ function safeDateParts(datetime: unknown) {
   return { valid: true as const, date, time, ts: t };
 }
 
-export function WindHistoryPage() {
-  const [currentPage, setCurrentPage] = useState(1);
+export function WindHistoryPage({
+  apiRows,
+  tableLoading,
+  tableErr,
+  highestWind,
+}: WindHistoryPageProps) {
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [sortBy, setSortBy] = useState('date-desc');
   // For years ML chart
   const [year, setYear] = useState<Year>(2025);
@@ -71,62 +85,6 @@ export function WindHistoryPage() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-
-  //For table  
-  const [apiRows, setApiRows] = useState<ApiRow[]>([]);
-  const [tableLoading, setTableLoading] = useState(true);
-  const [tableErr, setTableErr] = useState<string | null>(null);
-
-  //For Table - update the raw data then predict and load history from API on mount
-  useEffect(() => {
-  let alive = true;
-
-  const load = async () => {
-      try {
-        setTableLoading(true);
-        setTableErr(null);
-
-        // Trigger prediction first
-        await fetch("http://127.0.0.1:8000/predict/latest", {
-          method: "POST",
-        });
-
-        //Then fetch updated history
-        const r = await fetch(
-          "http://127.0.0.1:8000/history?limit=500&order=desc"
-        );
-
-        if (!r.ok) throw new Error("Failed to load history from API");
-
-        const data = await r.json();
-        if (!alive) return;
-
-        setApiRows(data.rows ?? []);
-      } catch (e: unknown) {
-          if (!alive) return;
-
-          const message =
-            e instanceof Error ? e.message : "Failed to load history";
-
-          setTableErr(message);
-        } finally {
-          if (alive) {
-            setTableLoading(false);
-          }
-        }
-    };
-
-  load();
-
-  //auto-run every 30 minutes  
-  const timer = setInterval(load, 1800000);
-
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, []);
-
 
   // For ML charts - load CSVs when year changes
   useEffect(() => {
@@ -241,14 +199,6 @@ export function WindHistoryPage() {
   
   const itemsPerPage = 10;
 
-  // Mock data for highest recorded wind
-  const highestWind = {
-    speed: 42.8,
-    date: 'November 15, 2025',
-    time: '14:35',
-    direction: '315° Northwest',
-  };
-
   // Mock historical data
   // const historicalData = [
   //   { date: '2025-11-22', time: '08:00', currentSpeed: 12.5, predictedSpeed: 15.2, currentDir: 'Northeast', predictedDir: 'East' },
@@ -295,11 +245,15 @@ export function WindHistoryPage() {
 
   // Also update the “when data changes clamp page” effect
   useEffect(() => {
-  setCurrentPage((prev) => {
-    const newTotalPages = Math.max(1, Math.ceil(filteredSortedTableData.length / itemsPerPage));
-    return Math.min(prev, newTotalPages);
-  });
-  }, [filteredSortedTableData.length]);
+  const newTotalPages = Math.max(
+    1,
+    Math.ceil(filteredSortedTableData.length / itemsPerPage)
+  );
+
+  if (currentPage > newTotalPages) {
+    setCurrentPage(newTotalPages);
+  }
+  }, [filteredSortedTableData.length, currentPage]);
 
   const getPageNumbers = () => {
     const pages = [];
@@ -322,21 +276,23 @@ export function WindHistoryPage() {
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-5 border border-white/20">
             <div className="text-sm text-blue-200 mb-3">Highest Recorded Wind</div>
             <div className="flex items-end gap-2 mb-4">
-              <div className="text-6xl">{highestWind.speed}</div>
+              <div className="text-6xl">{highestWind ? highestWind.speed.toFixed(1) : "—"}</div>
               <div className="text-2xl text-blue-200 pb-1.5">km/h</div>
             </div>
             <div className="space-y-2.5">
               <div className="flex items-center gap-2 text-sm">
                 <Calendar className="w-4 h-4 text-blue-300" />
-                <span className="text-blue-100">{highestWind.date}</span>
+                <span className="text-blue-100">{highestWind ? highestWind.date : "—"}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <Clock className="w-4 h-4 text-blue-300" />
-                <span className="text-blue-100">{highestWind.time}</span>
+                <span className="text-blue-100">{highestWind ? highestWind.time : "—"}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <Navigation className="w-4 h-4 text-blue-300" />
-                <span className="text-blue-100">{highestWind.direction}</span>
+                <span className="text-blue-100">{highestWind
+                  ? `${Math.round(highestWind.directionDeg)}° ${degToCompass(highestWind.directionDeg)}`
+                  : "—"}</span>
               </div>
             </div>
           </div>
