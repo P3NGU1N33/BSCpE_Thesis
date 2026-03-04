@@ -28,6 +28,17 @@ type ApiRow = {
   pred_winddir: number | string | null;
 };
 
+type TableRow = {
+  id: number;
+  ts: number;              // numeric timestamp for sorting
+  date: string;            // YYYY-MM-DD (UTC)
+  time: string;            // hh:mm AM/PM (UTC)
+  currentSpeed: number;
+  predictedSpeed: number | null;
+  currentDirDeg: number;
+  predictedDirDeg: number | null;
+};
+
 type WindHistoryPageProps = {
   apiRows: ApiRow[];
   tableLoading: boolean;
@@ -74,7 +85,7 @@ export function WindHistoryPage({
   tableErr,
   highestWind,
 }: WindHistoryPageProps) {
-  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('date-desc');
   // For years ML chart
   const [year, setYear] = useState<Year>(2025);
@@ -114,7 +125,7 @@ export function WindHistoryPage({
   }, [year]);
 
   //For historical Data Table - sort whenever apiRows or sortBy changes
-  const tableData = useMemo(() => {
+  const tableData: TableRow[] = useMemo(() => {
   return apiRows.map((r) => {
     const dt = safeDateParts(r.timestamp);
 
@@ -144,7 +155,7 @@ export function WindHistoryPage({
   // Date range + sort 
   const filteredSortedTableData = useMemo(() => {
     // 1) filter by date range
-    let data = [...tableData];
+    let data = tableData;
 
     if (startDate) {
       data = data.filter((r) => r.date >= startDate);
@@ -152,24 +163,25 @@ export function WindHistoryPage({
     if (endDate) {
       data = data.filter((r) => r.date <= endDate);
     }
-
+      // Sort copy only when needed
+      const sorted = [...data];
       // 2) sort
       switch (sortBy) {
         case "date-asc":
-          data.sort((a, b) => a.ts - b.ts);
+          sorted.sort((a, b) => a.ts - b.ts);
           break;
         case "date-desc":
-          data.sort((a, b) => b.ts - a.ts);
+          sorted.sort((a, b) => b.ts - a.ts);
           break;
         case "speed-asc":
-          data.sort((a, b) => a.currentSpeed - b.currentSpeed);
+          sorted.sort((a, b) => a.currentSpeed - b.currentSpeed);
           break;
         case "speed-desc":
-          data.sort((a, b) => b.currentSpeed - a.currentSpeed);
+          sorted.sort((a, b) => b.currentSpeed - a.currentSpeed);
           break;
       }
 
-      return data;
+      return sorted;
   }, [tableData, sortBy, startDate, endDate]);
 
   // Recharts wants numeric x-axis (timestamp)
@@ -227,10 +239,10 @@ export function WindHistoryPage({
   // const currentData = tableData.slice(startIndex, endIndex);
   const totalRecords = filteredSortedTableData.length;
   const totalPages = Math.max(1, Math.ceil(totalRecords / itemsPerPage));
-  const currentPageSafe = Math.min(currentPage, totalPages);
+  const currentPageSafe = useMemo(() => Math.min(currentPage, totalPages),[currentPage, totalPages]);
   const startIndex = (currentPageSafe - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const currentData = filteredSortedTableData.slice(startIndex, endIndex);
+  const currentData = useMemo(() => filteredSortedTableData.slice(startIndex, endIndex),[filteredSortedTableData, startIndex, endIndex]);
 
   const showingFrom = totalRecords === 0 ? 0 : startIndex + 1;
   const showingTo = Math.min(endIndex, totalRecords);
@@ -244,16 +256,16 @@ export function WindHistoryPage({
   // }, [tableData.length]);
 
   // Also update the “when data changes clamp page” effect
-  useEffect(() => {
-  const newTotalPages = Math.max(
-    1,
-    Math.ceil(filteredSortedTableData.length / itemsPerPage)
-  );
+  // useEffect(() => {
+  //   const newTotalPages = Math.max(
+  //     1,
+  //     Math.ceil(filteredSortedTableData.length / itemsPerPage)
+  //   );
 
-  if (currentPage > newTotalPages) {
-    setCurrentPage(newTotalPages);
-  }
-  }, [filteredSortedTableData.length, currentPage]);
+  //   if (currentPage > newTotalPages) {
+  //     setCurrentPage(newTotalPages);
+  //   }
+  // }, [filteredSortedTableData.length, currentPage]);
 
   const getPageNumbers = () => {
     const pages = [];
