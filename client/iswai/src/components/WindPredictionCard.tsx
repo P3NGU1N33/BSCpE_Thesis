@@ -1,24 +1,32 @@
 import { Wind, Navigation, Radio } from 'lucide-react';
+import { safeDatePartsUTC } from "../utils/wind";
 
 interface WindPredictionCardProps {
-  windSpeed: number;
-  windDirection: string;
+  windSpeed: number | null;
+  windDirection: string | null;
+  timestamp?: string | null;
   isCurrent: boolean;
 }
 
 export function WindPredictionCard({
   windSpeed,
   windDirection,
+  timestamp,
   isCurrent,
 }: WindPredictionCardProps) {
   // Automatically determine status based on wind speed (m/s)
-  const getStatus = (speed: number): 'safe' | 'moderate' | 'high' => {
-    if (speed >= 0 && speed <= 8) return 'safe';
-    if (speed >= 9 && speed <= 21) return 'moderate';
+  const getStatus = (speed: number | null): 'safe' | 'moderate' | 'high' => {
+    if (speed === null) return 'moderate'; // default styling if unknown
+    if (speed >= 0 && speed <= 28.8) return 'safe';
+    if (speed >= 32.4 && speed <= 75.6) return 'moderate';
     return 'high'; // 22-33 m/s and above
   };
 
+
   const status = getStatus(windSpeed);
+
+  const dt = timestamp ? safeDatePartsUTC(timestamp) : null;
+  const dtLabel = dt?.valid ? `${dt.date} • ${dt.time}` : null;
 
   const getStatusConfig = (status: 'safe' | 'moderate' | 'high') => {
     switch (status) {
@@ -70,6 +78,12 @@ export function WindPredictionCard({
         )}
       </div>
 
+      {/* Timestamp inside card (centered) */}
+      {dtLabel && (
+        <div className="text-center text-xs text-gray-700 font-medium mb-2">
+          {dtLabel}
+        </div>
+      )}
       {/* Wind Data - Horizontal Flexbox */}
       <div className="flex items-center justify-center gap-4 mb-1.5">
         {/* Wind Speed */}
@@ -80,7 +94,7 @@ export function WindPredictionCard({
             <span className="text-7xl font-bold text-gray-900 opacity-90">
               {windSpeed}
             </span>
-            <span className="text-xs text-gray-600">m/s</span>
+            <span className="text-xs text-gray-600">km/h</span>
           </div>
 
           {/* label centered below */}

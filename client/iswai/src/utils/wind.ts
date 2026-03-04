@@ -1,8 +1,8 @@
 export function degToCompass(deg: number) {
   if (!Number.isFinite(deg)) return "—";
   const dirs = [
-    "North","NNE","NE","ENE","East","ESE","SE","SSE",
-    "South","SSW","SW","WSW","West","WNW","NW","NNW"
+    "North","NNE","North East","ENE","East","ESE","South East","SSE",
+    "South","SSW","South West","WSW","West","WNW","North West","NNW"
   ];
   const idx = Math.round(((deg % 360) / 22.5)) % 16;
   return dirs[idx];

@@ -6,7 +6,7 @@ import { WindMainTipsPanel } from './components/WindMainTipsPanel';
 import { WindHistoryPage } from './components/WindHistoryPage';
 import { Navigation } from 'lucide-react';
 import type { HighestWind } from "./types/wind";
-import { safeDatePartsUTC } from "./utils/wind";
+import { safeDatePartsUTC, degToCompass } from "./utils/wind";
 import iswaiLogo from './assets/iSWAI_logo.png';
 import schoolLogo from './assets/UC_logo.png';
 
@@ -17,6 +17,7 @@ interface HistoryRow {
   pred_windspeed: string | number | null;
   winddir: string | number;
   pred_winddir: string | number | null;
+  pred_timestamp: string | null;
 }
 
 function App() {
@@ -76,21 +77,60 @@ function App() {
     }
     return best;
   }, [historyRows]);
+  
+  //Getting the latest row for current conditions (if needed in the future)
+  const latestRow = useMemo(() => {
+    if (!historyRows.length) return null;
+    // since you request order=desc, index 0 should be newest
+    return historyRows[0];
+  }, [historyRows]);
 
   // Mock data for current conditions
-  const currentWind = {
-    speed: 12.5,
-    direction: '45° Northeast',
-  };
+  const currentWind = useMemo(() => {
+    if (!latestRow) return null;
+
+    const speed = Number(latestRow.windspeed);
+    const dir = Number(latestRow.winddir);
+
+    return {
+      speed: Number.isFinite(speed) ? speed : null,
+      direction:
+        Number.isFinite(dir) ? `${dir.toFixed(0)}° ${degToCompass(dir)}` : null,
+      timestamp: latestRow.timestamp,
+    };
+  }, [latestRow]);
 
   // Mock data for next hour prediction
-  const nextHourWind = {
-    speed: 24.0,
-    direction: '90° East',
-  };
+  const nextHourWind = useMemo(() => {
+    if (!latestRow) return null;
+    
+    // accept either key from API
+    const rawPredTs =
+    latestRow.pred_timestamp ??
+    null;
+    
+    //fallback if pred_timestamp is missing or invalid
+    const fallbackPredTs = (() => {
+    const base = new Date(latestRow.timestamp);
+    if (Number.isNaN(base.getTime())) return null;
+    base.setHours(base.getHours() + 1);
+    return base.toISOString();
+    })();
 
-  const handleNavClick = (item: string) => {
-    setActiveNav(item);
+    const ps = rawPredTs ?? fallbackPredTs;
+    const speed = Number(latestRow.pred_windspeed);
+    const dir = Number(latestRow.pred_winddir);
+
+    return {
+      speed: Number.isFinite(speed) ? speed : null,
+      direction:
+        Number.isFinite(dir) ? `${dir.toFixed(0)}° ${degToCompass(dir)}` : null,
+      pred_timestamp: ps,
+    };
+  }, [latestRow]);
+
+  const handleNavClick = (navItem: string) => {
+    setActiveNav(navItem);
   };
 
   return (
@@ -175,8 +215,9 @@ function App() {
                 <div className="mb-2">
                   <h3 className="text-s mb-1.5" style={{ color: '#0062a4' }}>Current Conditions</h3>
                   <WindPredictionCard
-                    windSpeed={currentWind.speed}
-                    windDirection={currentWind.direction}
+                    windSpeed={currentWind?.speed ?? null}
+                    windDirection={currentWind?.direction ?? null}
+                    timestamp ={currentWind?.timestamp ?? null}
                     isCurrent={true}
                   />
                 </div>
@@ -185,10 +226,11 @@ function App() {
                 <div className="mb-2">
                   <h3 className="text-s mb-1.5" style={{ color: '#0062a4' }}>Next Hour Prediction</h3>
                   <WindPredictionCard
-                    windSpeed={nextHourWind.speed}
-                    windDirection={nextHourWind.direction}
+                    windSpeed={nextHourWind?.speed ? Number(nextHourWind.speed.toFixed(2)) : null}
+                    windDirection={nextHourWind?.direction ?? null}
+                    timestamp={nextHourWind?.pred_timestamp ?? null}
                     isCurrent={false}
-                  />
+                  />  
                 </div>
 
                 {/* Safety Indicator Legend */}
