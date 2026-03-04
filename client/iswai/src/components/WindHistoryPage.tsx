@@ -68,6 +68,9 @@ export function WindHistoryPage() {
   const [dirRaw, setDirRaw] = useState<WindDirRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   //For table  
   const [apiRows, setApiRows] = useState<ApiRow[]>([]);
@@ -170,6 +173,7 @@ export function WindHistoryPage() {
       id: r.id,
       date: dt.date,
       time: dt.time,
+      ts: dt.ts,
       currentSpeed,
       predictedSpeed,
       currentDirDeg,
@@ -177,6 +181,38 @@ export function WindHistoryPage() {
     };
   }).filter((record): record is NonNullable<typeof record> => record !== null);
 }, [apiRows]);
+
+
+  // Date range + sort 
+  const filteredSortedTableData = useMemo(() => {
+    // 1) filter by date range
+    let data = [...tableData];
+
+    if (startDate) {
+      data = data.filter((r) => r.date >= startDate);
+    }
+    if (endDate) {
+      data = data.filter((r) => r.date <= endDate);
+    }
+
+      // 2) sort
+      switch (sortBy) {
+        case "date-asc":
+          data.sort((a, b) => a.ts - b.ts);
+          break;
+        case "date-desc":
+          data.sort((a, b) => b.ts - a.ts);
+          break;
+        case "speed-asc":
+          data.sort((a, b) => a.currentSpeed - b.currentSpeed);
+          break;
+        case "speed-desc":
+          data.sort((a, b) => b.currentSpeed - a.currentSpeed);
+          break;
+      }
+
+      return data;
+  }, [tableData, sortBy, startDate, endDate]);
 
   // Recharts wants numeric x-axis (timestamp)
   const speedData = useMemo(() => {
@@ -231,25 +267,39 @@ export function WindHistoryPage() {
   //   { date: '2025-11-18', time: '15:30', currentSpeed: 23.8, predictedSpeed: 25.6, currentDir: 'Northwest', predictedDir: 'Northwest' },
   //   { date: '2025-11-17', time: '09:15', currentSpeed: 14.3, predictedSpeed: 15.8, currentDir: 'Northeast', predictedDir: 'East' },
   // ];
-  const totalRecords = tableData.length;
-  const totalPages = Math.max(1, Math.ceil(tableData.length / itemsPerPage));
+  // const totalRecords = tableData.length;
+  // const totalPages = Math.max(1, Math.ceil(tableData.length / itemsPerPage));
+  // const currentPageSafe = Math.min(currentPage, totalPages);
+  // const startIndex = (currentPageSafe - 1) * itemsPerPage;
+  // const endIndex = startIndex + itemsPerPage;
+  // const startIndex = (currentPage - 1) * itemsPerPage;
+  // const endIndex = startIndex + itemsPerPage;
+  // const currentData = tableData.slice(startIndex, endIndex);
+  const totalRecords = filteredSortedTableData.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / itemsPerPage));
   const currentPageSafe = Math.min(currentPage, totalPages);
   const startIndex = (currentPageSafe - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  // const startIndex = (currentPage - 1) * itemsPerPage;
-  // const endIndex = startIndex + itemsPerPage;
-  const currentData = tableData.slice(startIndex, endIndex);
+  const currentData = filteredSortedTableData.slice(startIndex, endIndex);
 
   const showingFrom = totalRecords === 0 ? 0 : startIndex + 1;
   const showingTo = Math.min(endIndex, totalRecords);
 
-  // WHen new rows arrive, TotalPage can change  
+  // // WHen new rows arrive, TotalPage can change  
+  // useEffect(() => {
+  //   setCurrentPage((prev) => {
+  //     const newTotalPages = Math.max(1, Math.ceil(tableData.length / itemsPerPage));
+  //     return Math.min(prev, newTotalPages);
+  //   });
+  // }, [tableData.length]);
+
+  // Also update the “when data changes clamp page” effect
   useEffect(() => {
-    setCurrentPage((prev) => {
-      const newTotalPages = Math.max(1, Math.ceil(tableData.length / itemsPerPage));
-      return Math.min(prev, newTotalPages);
-    });
-  }, [tableData.length]);
+  setCurrentPage((prev) => {
+    const newTotalPages = Math.max(1, Math.ceil(filteredSortedTableData.length / itemsPerPage));
+    return Math.min(prev, newTotalPages);
+  });
+  }, [filteredSortedTableData.length]);
 
   const getPageNumbers = () => {
     const pages = [];
@@ -329,11 +379,65 @@ export function WindHistoryPage() {
           </select>
         </div>
 
-        <button style={{ backgroundColor: '#0062a4' }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-white rounded-lg hover:opacity-90 transition-colors">
+        <button onClick={() => setShowCalendar((prev) => !prev)}
+                style={{ backgroundColor: '#0062a4' }}
+                className="flex items-center gap-2 px-4 py-1.5 text-sm text-white rounded-lg hover:opacity-90 transition-colors"
+        >
           <CalendarDays className="w-4 h-4" />
           Select Date Range
         </button>
       </div>
+
+      {showCalendar && (
+        <div className="mt-3 bg-white rounded-lg p-4 shadow-sm border border-blue-100 flex items-end gap-4 flex-wrap">
+
+          <div>
+            <label className="text-xs" style={{ color: "#0062a4" }}>
+              Start Date
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="block mt-1 px-3 py-1.5 text-sm rounded-lg border"
+              style={{ borderColor: "#0062a4" }}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs" style={{ color: "#0062a4" }}>
+              End Date
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="block mt-1 px-3 py-1.5 text-sm rounded-lg border"
+              style={{ borderColor: "#0062a4" }}
+            />
+          </div>
+
+          <button
+            onClick={() => {
+              setStartDate("");
+              setEndDate("");
+            }}
+            className="px-3 py-1.5 text-sm rounded-lg"
+            style={{ backgroundColor: "#e0f2fe", color: "#0062a4" }}
+          >
+            Clear
+          </button>
+
+          <button
+            onClick={() => setShowCalendar(false)}
+            className="px-4 py-1.5 text-sm rounded-lg text-white"
+            style={{ backgroundColor: "#0062a4" }}
+          >
+            Apply
+          </button>
+
+        </div>
+      )}
 
       {/* Data Table */}
       <div className="bg-white rounded-xl shadow-md border border-blue-100 overflow-hidden">
@@ -408,9 +512,9 @@ export function WindHistoryPage() {
                   </td>
 
                   <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
-                    {record.predictedSpeed == null || !Number.isFinite(record.predictedSpeed)
-                      ? "—"
-                      : `${record.currentDirDeg.toFixed(1)} °`}
+                    {Number.isFinite(record.currentDirDeg)
+                      ? `${record.currentDirDeg.toFixed(1)} °`
+                      : "—"}
                   </td>
 
                   <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
