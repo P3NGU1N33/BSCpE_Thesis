@@ -7,6 +7,8 @@ import { degToCompass } from "../utils/wind";
 
 type Year = 2022 | 2023 | 2024 | 2025;
 
+const HIGH_ALERT_KMH = 22; // change this if your own rule is different
+
 type WindSpeedRow = {
   datetime: string;
   windspeed: string;
@@ -78,6 +80,7 @@ function safeDateParts(datetime: unknown) {
 });
   return { valid: true as const, date, time, ts: t };
 }
+
 
 export function WindHistoryPage({
   apiRows,
@@ -151,6 +154,57 @@ export function WindHistoryPage({
   }).filter((record): record is NonNullable<typeof record> => record !== null);
 }, [apiRows]);
 
+  //Computes the summary of the table like stats 
+  const summary = useMemo(() => {
+  // Ignore invalid speeds
+  const rows = tableData.filter(r => Number.isFinite(r.currentSpeed));
+
+  if (rows.length === 0) {
+    return {
+      daysMonitored: 0,
+      avgWind: 0,
+      highAlerts: 0,
+      safeDaysPct: 0,
+    };
+  }
+
+  // Average wind across ALL records
+  const sum = rows.reduce((acc, r) => acc + r.currentSpeed, 0);
+  const avgWind = sum / rows.length;
+
+  // Group by day and track max wind per day
+  const dayMax = new Map<string, number>();
+  let highAlerts = 0;
+
+  for (const r of rows) {
+    // count high-alert rows (events)
+    if (r.currentSpeed >= HIGH_ALERT_KMH) highAlerts++;
+
+    // max wind per date
+    const prev = dayMax.get(r.date);
+    if (prev == null || r.currentSpeed > prev) {
+      dayMax.set(r.date, r.currentSpeed);
+    }
+  }
+
+  const daysMonitored = dayMax.size;
+
+  // safe day if max wind that day is below threshold
+  let safeDays = 0;
+  for (const maxV of dayMax.values()) {
+    if (maxV < HIGH_ALERT_KMH) safeDays++;
+  }
+
+  const safeDaysPct = daysMonitored === 0 ? 0 : (safeDays / daysMonitored) * 100;
+
+  return {
+    daysMonitored,
+    avgWind,
+    highAlerts,
+    safeDaysPct,
+  };
+}, [tableData]);
+
 
   // Date range + sort 
   const filteredSortedTableData = useMemo(() => {
@@ -211,32 +265,7 @@ export function WindHistoryPage({
   
   const itemsPerPage = 10;
 
-  // Mock historical data
-  // const historicalData = [
-  //   { date: '2025-11-22', time: '08:00', currentSpeed: 12.5, predictedSpeed: 15.2, currentDir: 'Northeast', predictedDir: 'East' },
-  //   { date: '2025-11-22', time: '07:00', currentSpeed: 10.8, predictedSpeed: 12.5, currentDir: 'North', predictedDir: 'Northeast' },
-  //   { date: '2025-11-21', time: '18:00', currentSpeed: 18.3, predictedSpeed: 20.1, currentDir: 'East', predictedDir: 'East' },
-  //   { date: '2025-11-21', time: '17:00', currentSpeed: 16.7, predictedSpeed: 18.3, currentDir: 'East', predictedDir: 'East' },
-  //   { date: '2025-11-21', time: '16:00', currentSpeed: 15.2, predictedSpeed: 16.7, currentDir: 'Northeast', predictedDir: 'East' },
-  //   { date: '2025-11-21', time: '15:00', currentSpeed: 14.9, predictedSpeed: 15.2, currentDir: 'Northeast', predictedDir: 'Northeast' },
-  //   { date: '2025-11-20', time: '12:00', currentSpeed: 22.4, predictedSpeed: 24.8, currentDir: 'Southeast', predictedDir: 'Southeast' },
-  //   { date: '2025-11-20', time: '11:00', currentSpeed: 20.1, predictedSpeed: 22.4, currentDir: 'Southeast', predictedDir: 'Southeast' },
-  //   { date: '2025-11-20', time: '10:00', currentSpeed: 19.5, predictedSpeed: 20.1, currentDir: 'East', predictedDir: 'Southeast' },
-  //   { date: '2025-11-20', time: '09:00', currentSpeed: 17.8, predictedSpeed: 19.5, currentDir: 'East', predictedDir: 'East' },
-  //   { date: '2025-11-19', time: '14:00', currentSpeed: 13.2, predictedSpeed: 14.6, currentDir: 'North', predictedDir: 'Northeast' },
-  //   { date: '2025-11-19', time: '13:00', currentSpeed: 11.9, predictedSpeed: 13.2, currentDir: 'North', predictedDir: 'North' },
-  //   { date: '2025-11-18', time: '16:30', currentSpeed: 25.6, predictedSpeed: 27.3, currentDir: 'Northwest', predictedDir: 'Northwest' },
-  //   { date: '2025-11-18', time: '15:30', currentSpeed: 23.8, predictedSpeed: 25.6, currentDir: 'Northwest', predictedDir: 'Northwest' },
-  //   { date: '2025-11-17', time: '09:15', currentSpeed: 14.3, predictedSpeed: 15.8, currentDir: 'Northeast', predictedDir: 'East' },
-  // ];
-  // const totalRecords = tableData.length;
-  // const totalPages = Math.max(1, Math.ceil(tableData.length / itemsPerPage));
-  // const currentPageSafe = Math.min(currentPage, totalPages);
-  // const startIndex = (currentPageSafe - 1) * itemsPerPage;
-  // const endIndex = startIndex + itemsPerPage;
-  // const startIndex = (currentPage - 1) * itemsPerPage;
-  // const endIndex = startIndex + itemsPerPage;
-  // const currentData = tableData.slice(startIndex, endIndex);
+  
   const totalRecords = filteredSortedTableData.length;
   const totalPages = Math.max(1, Math.ceil(totalRecords / itemsPerPage));
   const currentPageSafe = useMemo(() => Math.min(currentPage, totalPages),[currentPage, totalPages]);
@@ -246,26 +275,6 @@ export function WindHistoryPage({
 
   const showingFrom = totalRecords === 0 ? 0 : startIndex + 1;
   const showingTo = Math.min(endIndex, totalRecords);
-
-  // // WHen new rows arrive, TotalPage can change  
-  // useEffect(() => {
-  //   setCurrentPage((prev) => {
-  //     const newTotalPages = Math.max(1, Math.ceil(tableData.length / itemsPerPage));
-  //     return Math.min(prev, newTotalPages);
-  //   });
-  // }, [tableData.length]);
-
-  // Also update the “when data changes clamp page” effect
-  // useEffect(() => {
-  //   const newTotalPages = Math.max(
-  //     1,
-  //     Math.ceil(filteredSortedTableData.length / itemsPerPage)
-  //   );
-
-  //   if (currentPage > newTotalPages) {
-  //     setCurrentPage(newTotalPages);
-  //   }
-  // }, [filteredSortedTableData.length, currentPage]);
 
   const getPageNumbers = () => {
     const pages = [];
@@ -311,19 +320,19 @@ export function WindHistoryPage({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white/5 rounded-lg p-4 text-center">
-              <div className="text-4xl">156</div>
+              <div className="text-4xl">{tableLoading ? "—" : summary.daysMonitored}</div>
               <div className="text-sm text-blue-300 mt-1.5">Days Monitored</div>
             </div>
             <div className="bg-white/5 rounded-lg p-4 text-center">
-              <div className="text-4xl">12.4</div>
+              <div className="text-4xl">{tableLoading ? "—" : summary.avgWind.toFixed(1)}</div>
               <div className="text-sm text-blue-300 mt-1.5">Avg Wind (km/h)</div>
             </div>
             <div className="bg-white/5 rounded-lg p-4 text-center">
-              <div className="text-4xl">23</div>
+              <div className="text-4xl">{tableLoading ? "—" : summary.highAlerts}</div>
               <div className="text-sm text-blue-300 mt-1.5">High Alerts</div>
             </div>
             <div className="bg-white/5 rounded-lg p-4 text-center">
-              <div className="text-4xl">89%</div>
+              <div className="text-4xl">{tableLoading ? "—" : `${Math.round(summary.safeDaysPct)}%`}</div>
               <div className="text-sm text-blue-300 mt-1.5">Safe Days</div>
             </div>
           </div>
