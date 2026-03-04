@@ -17,6 +17,15 @@ type WindDirRow = {
   pred_winddir: string;
 };
 
+type ApiRow = {
+  id: number;
+  timestamp: string;
+  windspeed: number | string;
+  pred_windspeed: number | string | null;
+  winddir: number | string;
+  pred_winddir: number | string | null;
+};
+
 async function loadCsv<T>(path: string): Promise<T[]> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`Failed to fetch ${path}`);
@@ -31,17 +40,92 @@ async function loadCsv<T>(path: string): Promise<T[]> {
     });
   });
 }
+//Date Parsing Helper
+function safeDateParts(datetime: unknown) {
+  const d = new Date(String(datetime));
+  const t = d.getTime();
 
+  if (!Number.isFinite(t)) {
+    return { valid: false as const, date: "—", time: "—", ts: NaN };
+  }
+
+  const date = d.toLocaleDateString("en-CA", { timeZone: "UTC" });
+  const time = d.toLocaleTimeString("en-US", {
+  timeZone: "UTC",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: true,
+});
+  return { valid: true as const, date, time, ts: t };
+}
 
 export function WindHistoryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('date-desc');
+  // For years ML chart
   const [year, setYear] = useState<Year>(2025);
   const [speedRaw, setSpeedRaw] = useState<WindSpeedRow[]>([]);
   const [dirRaw, setDirRaw] = useState<WindDirRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  //For table  
+  const [apiRows, setApiRows] = useState<ApiRow[]>([]);
+  const [tableLoading, setTableLoading] = useState(true);
+  const [tableErr, setTableErr] = useState<string | null>(null);
+
+  //For Table - update the raw data then predict and load history from API on mount
+  useEffect(() => {
+  let alive = true;
+
+  const load = async () => {
+      try {
+        setTableLoading(true);
+        setTableErr(null);
+
+        // Trigger prediction first
+        await fetch("http://127.0.0.1:8000/predict/latest", {
+          method: "POST",
+        });
+
+        //Then fetch updated history
+        const r = await fetch(
+          "http://127.0.0.1:8000/history?limit=500&order=desc"
+        );
+
+        if (!r.ok) throw new Error("Failed to load history from API");
+
+        const data = await r.json();
+        if (!alive) return;
+
+        setApiRows(data.rows ?? []);
+      } catch (e: unknown) {
+          if (!alive) return;
+
+          const message =
+            e instanceof Error ? e.message : "Failed to load history";
+
+          setTableErr(message);
+        } finally {
+          if (alive) {
+            setTableLoading(false);
+          }
+        }
+    };
+
+  load();
+
+  //auto-run every 30 minutes  
+  const timer = setInterval(load, 1800000);
+
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+
+  // For ML charts - load CSVs when year changes
   useEffect(() => {
     let alive = true;
 
@@ -68,11 +152,37 @@ export function WindHistoryPage() {
     };
   }, [year]);
 
+  //For historical Data Table - sort whenever apiRows or sortBy changes
+  const tableData = useMemo(() => {
+  return apiRows.map((r) => {
+    const dt = safeDateParts(r.timestamp);
+
+      // If invalid datetime, skip this row (recommended)
+      if (!dt.valid) return null;
+
+    const currentSpeed = Number(r.windspeed);
+    const predictedSpeed = r.pred_windspeed == null ? null : Number(r.pred_windspeed);
+
+    const currentDirDeg = Number(r.winddir);
+    const predictedDirDeg = r.pred_winddir == null ? null : Number(r.pred_winddir);
+
+    return {
+      id: r.id,
+      date: dt.date,
+      time: dt.time,
+      currentSpeed,
+      predictedSpeed,
+      currentDirDeg,
+      predictedDirDeg,
+    };
+  }).filter((record): record is NonNullable<typeof record> => record !== null);
+}, [apiRows]);
+
   // Recharts wants numeric x-axis (timestamp)
   const speedData = useMemo(() => {
     return speedRaw
       .map((r) => {
-        const t = new Date(r.datetime).getTime();
+        const t = new Date(String(r.datetime)).getTime();
         const actual = Number(r.windspeed);
         const pred = Number(r.pred_windspeed);
         if (!Number.isFinite(t) || !Number.isFinite(actual) || !Number.isFinite(pred)) return null;
@@ -84,7 +194,7 @@ export function WindHistoryPage() {
   const dirData = useMemo(() => {
     return dirRaw
       .map((r) => {
-        const t = new Date(r.datetime).getTime();
+        const t = new Date(String(r.datetime)).getTime();
         const actual = Number(r.winddir);
         const pred = Number(r.pred_winddir);
         if (!Number.isFinite(t) || !Number.isFinite(actual) || !Number.isFinite(pred)) return null;
@@ -104,28 +214,42 @@ export function WindHistoryPage() {
   };
 
   // Mock historical data
-  const historicalData = [
-    { date: '2025-11-22', time: '08:00', currentSpeed: 12.5, predictedSpeed: 15.2, currentDir: 'Northeast', predictedDir: 'East' },
-    { date: '2025-11-22', time: '07:00', currentSpeed: 10.8, predictedSpeed: 12.5, currentDir: 'North', predictedDir: 'Northeast' },
-    { date: '2025-11-21', time: '18:00', currentSpeed: 18.3, predictedSpeed: 20.1, currentDir: 'East', predictedDir: 'East' },
-    { date: '2025-11-21', time: '17:00', currentSpeed: 16.7, predictedSpeed: 18.3, currentDir: 'East', predictedDir: 'East' },
-    { date: '2025-11-21', time: '16:00', currentSpeed: 15.2, predictedSpeed: 16.7, currentDir: 'Northeast', predictedDir: 'East' },
-    { date: '2025-11-21', time: '15:00', currentSpeed: 14.9, predictedSpeed: 15.2, currentDir: 'Northeast', predictedDir: 'Northeast' },
-    { date: '2025-11-20', time: '12:00', currentSpeed: 22.4, predictedSpeed: 24.8, currentDir: 'Southeast', predictedDir: 'Southeast' },
-    { date: '2025-11-20', time: '11:00', currentSpeed: 20.1, predictedSpeed: 22.4, currentDir: 'Southeast', predictedDir: 'Southeast' },
-    { date: '2025-11-20', time: '10:00', currentSpeed: 19.5, predictedSpeed: 20.1, currentDir: 'East', predictedDir: 'Southeast' },
-    { date: '2025-11-20', time: '09:00', currentSpeed: 17.8, predictedSpeed: 19.5, currentDir: 'East', predictedDir: 'East' },
-    { date: '2025-11-19', time: '14:00', currentSpeed: 13.2, predictedSpeed: 14.6, currentDir: 'North', predictedDir: 'Northeast' },
-    { date: '2025-11-19', time: '13:00', currentSpeed: 11.9, predictedSpeed: 13.2, currentDir: 'North', predictedDir: 'North' },
-    { date: '2025-11-18', time: '16:30', currentSpeed: 25.6, predictedSpeed: 27.3, currentDir: 'Northwest', predictedDir: 'Northwest' },
-    { date: '2025-11-18', time: '15:30', currentSpeed: 23.8, predictedSpeed: 25.6, currentDir: 'Northwest', predictedDir: 'Northwest' },
-    { date: '2025-11-17', time: '09:15', currentSpeed: 14.3, predictedSpeed: 15.8, currentDir: 'Northeast', predictedDir: 'East' },
-  ];
-
-  const totalPages = Math.ceil(historicalData.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
+  // const historicalData = [
+  //   { date: '2025-11-22', time: '08:00', currentSpeed: 12.5, predictedSpeed: 15.2, currentDir: 'Northeast', predictedDir: 'East' },
+  //   { date: '2025-11-22', time: '07:00', currentSpeed: 10.8, predictedSpeed: 12.5, currentDir: 'North', predictedDir: 'Northeast' },
+  //   { date: '2025-11-21', time: '18:00', currentSpeed: 18.3, predictedSpeed: 20.1, currentDir: 'East', predictedDir: 'East' },
+  //   { date: '2025-11-21', time: '17:00', currentSpeed: 16.7, predictedSpeed: 18.3, currentDir: 'East', predictedDir: 'East' },
+  //   { date: '2025-11-21', time: '16:00', currentSpeed: 15.2, predictedSpeed: 16.7, currentDir: 'Northeast', predictedDir: 'East' },
+  //   { date: '2025-11-21', time: '15:00', currentSpeed: 14.9, predictedSpeed: 15.2, currentDir: 'Northeast', predictedDir: 'Northeast' },
+  //   { date: '2025-11-20', time: '12:00', currentSpeed: 22.4, predictedSpeed: 24.8, currentDir: 'Southeast', predictedDir: 'Southeast' },
+  //   { date: '2025-11-20', time: '11:00', currentSpeed: 20.1, predictedSpeed: 22.4, currentDir: 'Southeast', predictedDir: 'Southeast' },
+  //   { date: '2025-11-20', time: '10:00', currentSpeed: 19.5, predictedSpeed: 20.1, currentDir: 'East', predictedDir: 'Southeast' },
+  //   { date: '2025-11-20', time: '09:00', currentSpeed: 17.8, predictedSpeed: 19.5, currentDir: 'East', predictedDir: 'East' },
+  //   { date: '2025-11-19', time: '14:00', currentSpeed: 13.2, predictedSpeed: 14.6, currentDir: 'North', predictedDir: 'Northeast' },
+  //   { date: '2025-11-19', time: '13:00', currentSpeed: 11.9, predictedSpeed: 13.2, currentDir: 'North', predictedDir: 'North' },
+  //   { date: '2025-11-18', time: '16:30', currentSpeed: 25.6, predictedSpeed: 27.3, currentDir: 'Northwest', predictedDir: 'Northwest' },
+  //   { date: '2025-11-18', time: '15:30', currentSpeed: 23.8, predictedSpeed: 25.6, currentDir: 'Northwest', predictedDir: 'Northwest' },
+  //   { date: '2025-11-17', time: '09:15', currentSpeed: 14.3, predictedSpeed: 15.8, currentDir: 'Northeast', predictedDir: 'East' },
+  // ];
+  const totalRecords = tableData.length;
+  const totalPages = Math.max(1, Math.ceil(tableData.length / itemsPerPage));
+  const currentPageSafe = Math.min(currentPage, totalPages);
+  const startIndex = (currentPageSafe - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const currentData = historicalData.slice(startIndex, endIndex);
+  // const startIndex = (currentPage - 1) * itemsPerPage;
+  // const endIndex = startIndex + itemsPerPage;
+  const currentData = tableData.slice(startIndex, endIndex);
+
+  const showingFrom = totalRecords === 0 ? 0 : startIndex + 1;
+  const showingTo = Math.min(endIndex, totalRecords);
+
+  // WHen new rows arrive, TotalPage can change  
+  useEffect(() => {
+    setCurrentPage((prev) => {
+      const newTotalPages = Math.max(1, Math.ceil(tableData.length / itemsPerPage));
+      return Math.min(prev, newTotalPages);
+    });
+  }, [tableData.length]);
 
   const getPageNumbers = () => {
     const pages = [];
@@ -215,6 +339,91 @@ export function WindHistoryPage() {
       <div className="bg-white rounded-xl shadow-md border border-blue-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
+          <thead style={{ backgroundColor: '#0062a4' }} className="text-white">
+              <tr>
+                <th className="px-4 py-3 text-left text-sm">Date</th>
+                <th className="px-4 py-3 text-left text-sm">Time</th>
+                <th className="px-4 py-3 text-center text-sm">Current Wind Speed</th>
+                <th className="px-4 py-3 text-center text-sm">Predicted Wind Speed</th>
+                <th className="px-4 py-3 text-center text-sm">Current Direction</th>
+                <th className="px-4 py-3 text-center text-sm">Predicted Direction</th>
+              </tr>
+            </thead>
+          <tbody>
+            {/* ✅ Loading */}
+            {tableLoading && (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-sm">
+                  <span style={{ color: "#0062a4" }}>Loading latest data…</span>
+                </td>
+              </tr>
+            )}
+
+            {/* ✅ Error */}
+            {!tableLoading && tableErr && (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-sm">
+                  <span className="text-red-600">{tableErr}</span>
+                </td>
+              </tr>
+            )}
+
+            {/* ✅ Empty */}
+            {!tableLoading && !tableErr && currentData.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-sm">
+                  <span style={{ color: "#0062a4" }}>No records found.</span>
+                </td>
+              </tr>
+            )}
+
+            {/* ✅ Data */}
+            {!tableLoading &&
+              !tableErr &&
+              currentData.map((record, index) => (
+                <tr
+                  key={record.id ?? `${record.date}-${record.time}-${index}`}
+                  className={`${
+                    index % 2 === 0 ? "bg-blue-50" : "bg-white"
+                  } hover:bg-blue-100 transition-colors`}
+                >
+                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-sm">
+                    {record.date}
+                  </td>
+
+                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-sm">
+                    {record.time}
+                  </td>
+
+                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
+                    {Number.isFinite(record.currentSpeed)
+                      ? `${record.currentSpeed.toFixed(1)} km/h`
+                      : "—"}
+                  </td>
+
+                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
+                    {record.predictedSpeed == null || !Number.isFinite(record.predictedSpeed)
+                      ? "—"
+                      : `${record.predictedSpeed.toFixed(1)} km/h`}
+                  </td>
+
+                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
+                    {record.predictedSpeed == null || !Number.isFinite(record.predictedSpeed)
+                      ? "—"
+                      : `${record.currentDirDeg.toFixed(1)} °`}
+                  </td>
+
+                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
+                    {record.predictedDirDeg == null || !Number.isFinite(record.predictedDirDeg)
+                      ? "—"
+                      : `${record.predictedDirDeg.toFixed(1)} °`}
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+          </table>
+
+          {/* <table className="w-full">
             <thead style={{ backgroundColor: '#0062a4' }} className="text-white">
               <tr>
                 <th className="px-4 py-3 text-left text-sm">Date</th>
@@ -250,12 +459,67 @@ export function WindHistoryPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table> */}
         </div>
 
         {/* Pagination */}
         <div className="bg-blue-50 px-4 py-3 border-t border-blue-200">
+
+
           <div className="flex items-center justify-between">
+            <div style={{ color: "#0062a4" }} className="text-sm">
+              Showing {showingFrom} to {showingTo} of {totalRecords} records
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPageSafe === 1}
+                style={{
+                  backgroundColor: currentPageSafe === 1 ? "#e0f2fe" : "white",
+                  color: currentPageSafe === 1 ? "#93c5fd" : "#0062a4",
+                }}
+                className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 ${
+                  currentPageSafe === 1 ? "cursor-not-allowed" : "hover:opacity-80"
+                } transition-colors`}
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </button>
+
+              {getPageNumbers().map((page) => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  style={{
+                    backgroundColor: currentPageSafe === page ? "#0062a4" : "white",
+                    color: currentPageSafe === page ? "white" : "#0062a4",
+                  }}
+                  className="px-3 py-1.5 text-sm rounded-lg transition-colors hover:opacity-80"
+                >
+                  {page}
+                </button>
+              ))}
+
+              <button
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPageSafe === totalPages}
+                style={{
+                  backgroundColor: currentPageSafe === totalPages ? "#e0f2fe" : "white",
+                  color: currentPageSafe === totalPages ? "#93c5fd" : "#0062a4",
+                }}
+                className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 ${
+                  currentPageSafe === totalPages ? "cursor-not-allowed" : "hover:opacity-80"
+                } transition-colors`}
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+
+          {/* <div className="flex items-center justify-between">
             <div style={{ color: '#0062a4' }} className="text-sm">
               Showing {startIndex + 1} to {Math.min(endIndex, historicalData.length)} of{' '}
               {historicalData.length} records
@@ -306,7 +570,7 @@ export function WindHistoryPage() {
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
       {/* Charts Sections */}
