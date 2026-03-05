@@ -490,14 +490,14 @@ export function WindHistoryPage({
 
                   <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
                     {Number.isFinite(record.currentDirDeg)
-                      ? `${record.currentDirDeg.toFixed(1)} °`
+                      ? `${record.currentDirDeg.toFixed(1)} ° ${degToCompass(record.currentDirDeg)}`
                       : "—"}
                   </td>
 
                   <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
                     {record.predictedDirDeg == null || !Number.isFinite(record.predictedDirDeg)
                       ? "—"
-                      : `${record.predictedDirDeg.toFixed(1)} °`}
+                      : `${record.predictedDirDeg.toFixed(1)} ° ${degToCompass(record.predictedDirDeg)}`}
                   </td>
                 </tr>
               ))}
