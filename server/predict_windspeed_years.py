@@ -6,7 +6,7 @@ import pandas as pd
 MODEL_PATH = "models/windspeed_model.joblib"
 DATA_DIR = "data"
 OUT_DIR = "output"
-YEARS = [2022, 2023, 2024, 2025]
+YEARS = [2026]
 
 def add_datetime_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
