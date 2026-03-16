@@ -5,7 +5,7 @@ import pandas as pd
 
 MODEL_PATH = "models/winddirection_model.joblib"
 DATA_DIR = "data"
-OUT_DIR = "output"
+OUT_DIR = "../client/iswai/public/data"
 YEARS = [2026]
 
 def add_datetime_features(df: pd.DataFrame) -> pd.DataFrame:

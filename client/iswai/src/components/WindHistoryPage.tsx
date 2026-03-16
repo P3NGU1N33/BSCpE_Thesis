@@ -5,7 +5,7 @@ import TimelineChart from "./TimelineChart";
 import type { HighestWind } from "../types/wind";
 import { degToCompass } from "../utils/wind";
 
-type Year = 2022 | 2023 | 2024 | 2025;
+type Year = 2022 | 2023 | 2024 | 2025 | 2026;
 
 const HIGH_ALERT_KMH = 22; // change this if your own rule is different
 
@@ -668,6 +668,7 @@ export function WindHistoryPage({
           <option value={2023}>2023</option>
           <option value={2024}>2024</option>
           <option value={2025}>2025</option>
+          <option value={2026}>2026</option>
         </select>
 
         {loading && <span className="text-sm">Loading…</span>}
