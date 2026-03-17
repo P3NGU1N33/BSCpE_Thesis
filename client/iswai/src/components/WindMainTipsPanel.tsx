@@ -90,7 +90,7 @@ export function WindMainTipsPanel({ onNavigate }: WindMainTipsPanelProps) {
             style={{ color: '#0062a4' }}
             aria-label="Previous tip"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-6 h-6" />
           </button>
 
           {/* Tip Indicator */}
@@ -99,7 +99,7 @@ export function WindMainTipsPanel({ onNavigate }: WindMainTipsPanelProps) {
               <div
                 key={index}
                 className={`w-1.5 h-1.5 rounded-full transition-all ${
-                  index === currentTipIndex ? 'w-4' : ''
+                  index === currentTipIndex ? 'w-6' : ''
                 }`}
                 style={{
                   backgroundColor: index === currentTipIndex ? '#0062a4' : '#cbd5e1',
@@ -114,7 +114,7 @@ export function WindMainTipsPanel({ onNavigate }: WindMainTipsPanelProps) {
             style={{ color: '#0062a4' }}
             aria-label="Next tip"
           >
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-6 h-6" />
           </button>
         </div>
       </div>
