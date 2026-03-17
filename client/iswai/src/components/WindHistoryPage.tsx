@@ -91,7 +91,7 @@ export function WindHistoryPage({
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('date-desc');
   // For years ML chart
-  const [year, setYear] = useState<Year>(2025);
+  const [year, setYear] = useState<Year>(2026);
   const [speedRaw, setSpeedRaw] = useState<WindSpeedRow[]>([]);
   const [dirRaw, setDirRaw] = useState<WindDirRow[]>([]);
   const [loading, setLoading] = useState(true);

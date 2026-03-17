@@ -136,7 +136,7 @@ function App() {
   return (
     <div className="min-h-screen bg-[#b5e5ff] flex flex-col">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-blue-100 lg:rounded-b-xl">
+      <header className="bg-white shadow-sm border-b border-blue-100 lg:rounded-b-2xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             {/* Logo Section */}
@@ -159,7 +159,7 @@ function App() {
                     backgroundColor: activeNav === item ? '#0062a4' : '#e0f2fe',
                     color: activeNav === item ? 'white' : '#0062a4'
                   }}
-                  className={`px-3 py-1 rounded-lg transition-all text-sm hover:opacity-90`}
+                  className={`px-3 py-1 rounded-lg transition-all text-l font-sm hover:opacity-90`}
                 >
                   {item}
                 </button>
@@ -206,14 +206,14 @@ function App() {
 >
 
                 {/* Panel Header */}
-                <div className="flex items-center gap-2 mb-2">
-                  <Navigation className="w-4 h-4" style={{ color: '#0062a4' }} />
-                  <h2 className="text-lg" style={{ color: '#0062a4' }}>Wind Forecast</h2>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Navigation className="w-5 h-5" style={{ color: '#0062a4' }} />
+                  <h2 className="text-2xl font-bold" style={{ color: '#0062a4' }}>Wind Forecast</h2>
                 </div>
 
                 {/* Current Conditions */}
                 <div className="mb-2">
-                  <h3 className="text-s mb-1.5" style={{ color: '#0062a4' }}>Current Conditions</h3>
+                  <h3 className="text-xl font-sm mb-1.5" style={{ color: '#0062a4' }}>Current Conditions</h3>
                   <WindPredictionCard
                     windSpeed={currentWind?.speed ?? null}
                     windDirection={currentWind?.direction ?? null}
@@ -224,7 +224,7 @@ function App() {
 
                 {/* Next Hour Prediction */}
                 <div className="mb-2">
-                  <h3 className="text-s mb-1.5" style={{ color: '#0062a4' }}>Next Hour Prediction</h3>
+                  <h3 className="text-xl font-sm mb-1.5" style={{ color: '#0062a4' }}>Next Hour Prediction</h3>
                   <WindPredictionCard
                     windSpeed={nextHourWind?.speed ? Number(nextHourWind.speed.toFixed(2)) : null}
                     windDirection={nextHourWind?.direction ?? null}
@@ -235,19 +235,19 @@ function App() {
 
                 {/* Safety Indicator Legend */}
                 <div className="bg-white/60 rounded-lg p-2 border" style={{ borderColor: '#0062a4' }}>
-                  <h4 className="text-s mb-1.5" style={{ color: '#0062a4' }}>Safety Indicator Guidelines</h4>
+                  <h4 className="text-xl font-bold mb-1.5" style={{ color: '#0062a4' }}>Safety Indicator Guidelines</h4>
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                      <span className="text-gray-700"><span className="text-green-700">Safe:</span> 0–28.8 km/h</span>
+                    <div className="flex items-center gap-2 font-sm text-l">
+                      <div className="w-4 h-4 rounded-full bg-green-500"></div>
+                      <span className="text-gray-700"><span className="text-green-700 font-bold">Safe:</span> 0–28.8 km/h</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
-                      <span className="text-gray-700"><span className="text-yellow-700">Moderate:</span> 32.4–75.6 km/h</span>
+                    <div className="flex items-center gap-2 font-sm text-l">
+                      <div className="w-4 h-4 rounded-full bg-yellow-500"></div>
+                      <span className="text-gray-700"><span className="text-yellow-700 font-bold">Moderate:</span> 32.4–75.6 km/h</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                      <span className="text-gray-700"><span className="text-red-700">Unsafe:</span> ≥80 km/h</span>
+                    <div className="flex items-center gap-2 font-sm text-l">
+                      <div className="w-4 h-4  rounded-full bg-red-500"></div>
+                      <span className="text-gray-700"><span className="text-red-700 font-bold">Unsafe:</span> ≥80 km/h</span>
                     </div>
                   </div>
                 </div>
@@ -289,10 +289,10 @@ function App() {
       <footer style={{ backgroundColor: '#0062a4' }} className="text-white rounded-t-2xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
           <div className="text-center">
-            <p className="text-xs text-blue-100">
-              <span className="text-white">iSWAI</span> – Talisay, Daanbantayan, Cebu
+            <p className="text-m font-semibold text-blue-100">
+              <span className="text-white font-bold">iSWAI</span> – Talisay, Daanbantayan, Cebu
             </p>
-            <p className="text-xs text-blue-300 mt-0.5 italic">
+            <p className="text-sm text-blue-300 mt-0.5 italic">
               Protecting Fishermen, Saving Lives
             </p>
           </div>

@@ -36,10 +36,10 @@ export function WindHistoryPanel({
         }}
       >
         <TrendingUp className="w-3.5 h-3.5" />
-        <h3 className="text-blue-100 text-xs">Wind History</h3>
+        <h3 className="text-blue-100 text-xl font-bold">Wind History</h3>
       </div>
 
-      <h4 className="text-sm mb-2">Highest Recorded Wind</h4>
+      <h4 className="text-l font-semibold mb-2">Highest Recorded Wind</h4>
 
       {/* Loading / Error */}
       {loading && (
@@ -68,28 +68,28 @@ export function WindHistoryPanel({
           {/* Date */}
           <div className="bg-white/10 rounded-lg p-2">
             <div className="flex items-center gap-1 mb-1">
-              <Calendar className="w-3 h-3 text-blue-200" />
-              <div className="text-xs text-blue-200">Date</div>
+              <Calendar className="w-4 h-4 text-blue-200" />
+              <div className="text-l font-semibold text-blue-200">Date</div>
             </div>
-            <div className="text-xs">{highestWind ? highestWind.date : "—"}</div>
+            <div className="text-m">{highestWind ? highestWind.date : "—"}</div>
           </div>
 
           {/* Time */}
           <div className="bg-white/10 rounded-lg p-2">
             <div className="flex items-center gap-1 mb-1">
-              <Clock className="w-3 h-3 text-blue-200" />
-              <div className="text-xs text-blue-200">Time</div>
+              <Clock className="w-4 h-4 text-blue-200" />
+              <div className="text-l font-semibold text-blue-200">Time</div>
             </div>
-            <div className="text-xs">{highestWind ? highestWind.time : "—"}</div>
+            <div className="text-m">{highestWind ? highestWind.time : "—"}</div>
           </div>
 
           {/* Direction */}
           <div className="col-span-2 bg-white/10 rounded-lg p-2">
             <div className="flex items-center gap-1 mb-1">
-              <Navigation className="w-3 h-3 text-blue-200" />
-              <div className="text-xs text-blue-200">Direction</div>
+              <Navigation className="w-4 h-4 text-blue-200" />
+              <div className="text-l font-semibold text-blue-200">Direction</div>
             </div>
-            <div className="text-xs">{directionText}</div>
+            <div className="text-m">{directionText}</div>
           </div>
         </div>
       )}

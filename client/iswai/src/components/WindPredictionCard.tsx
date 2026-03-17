@@ -66,13 +66,13 @@ export function WindPredictionCard({
       {/* Alert Badge */}
       <div className="flex justify-between items-start mb-1.5">
         <span
-          className={`${statusConfig.badgeColor} text-white px-2 py-0.5 rounded-full text-xs`}
+          className={`${statusConfig.badgeColor} text-white px-4 py-1 rounded-full text-m font-medium`}
         >
           {statusConfig.label}
         </span>
         {isCurrent && (
           <span style={{ backgroundColor: '#0062a4' }} className="text-white px-2 py-0.5 rounded-full text-xs flex items-center gap-1">
-            <Radio className="w-3 h-3" />
+            <Radio className="w-5 h-5" />
             LIVE
           </span>
         )}
@@ -80,7 +80,7 @@ export function WindPredictionCard({
 
       {/* Timestamp inside card (centered) */}
       {dtLabel && (
-        <div className="text-center text-xs text-gray-700 font-medium mb-2">
+        <div className="text-center font-bold text-l text-gray-700 font-medium mb-2">
           {dtLabel}
         </div>
       )}
@@ -90,7 +90,7 @@ export function WindPredictionCard({
         <div className="flex flex-col items-center">
           {/* icon + value + unit in one row */}
           <div className="flex items-center justify-center gap-1 mb-0.5">
-            <Wind className={`w-4 h-4 ${statusConfig.textColor}`} />
+            <Wind className={`w-5.5 h-5.5 ${statusConfig.textColor}`} />
             <span className="text-7xl font-bold text-gray-900 opacity-90">
               {windSpeed}
             </span>
@@ -98,7 +98,7 @@ export function WindPredictionCard({
           </div>
 
           {/* label centered below */}
-          <div className={`text-xs ${statusConfig.textColor}`}>Wind Speed</div>
+          <div className={`text-m font-sm ${statusConfig.textColor}`}>Wind Speed</div>
         </div>
 
         {/* Vertical Divider */}
@@ -107,18 +107,18 @@ export function WindPredictionCard({
         {/* Wind Direction */}
         <div className="flex flex-col items-center">
           <div className="flex items-center justify-center gap-1 mb-0.5">
-            <Navigation className={`w-4 h-4 ${statusConfig.textColor}`} />
-            <span className="text-2xl text-gray-900">
+            <Navigation className={`w-5.5 h-5.5 ${statusConfig.textColor}`} />
+            <span className="text-3xl font-bold text-gray-900">
               {windDirection}
             </span>
           </div>
           
-          <div className={`text-xs ${statusConfig.textColor}`}>Wind Direction</div>
+          <div className={`text-m font-sm ${statusConfig.textColor}`}>Wind Direction</div>
         </div>
       </div>
 
       {/* Status Message */}
-      <div className={`mt-1.5 p-1.5 bg-white/50 rounded-lg text-center text-xs ${statusConfig.textColor}`}>
+      <div className={`mt-1.5 p-1.5 bg-white/50 rounded-lg text-center font-sm text-m ${statusConfig.textColor}`}>
         {status === 'safe' && '✓ Conditions are safe for fishing'}
         {status === 'moderate' && '⚠ Exercise caution when going out'}
         {status === 'high' && '⚠ Dangerous conditions - stay ashore'}

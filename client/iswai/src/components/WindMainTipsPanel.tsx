@@ -66,18 +66,18 @@ export function WindMainTipsPanel({ onNavigate }: WindMainTipsPanelProps) {
           }
         }}
       >
-        <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
-        <h3 style={{ color: '#0062a4' }} className="text-xs">Wind Tips</h3>
+        <Lightbulb className="w-5.5 h-5.5 text-yellow-500" />
+        <h3 style={{ color: '#0062a4' }} className="text-xl font-bold">Wind Tips</h3>
       </div>
 
       {/* Tip Content */}
       <div className="flex-1 flex flex-col">
         {/* Current Tip */}
         <div className="flex-1 bg-gradient-to-br from-blue-50 to-cyan-50 rounded-lg p-3 mb-2">
-          <h4 className="text-sm mb-1.5" style={{ color: '#0062a4' }}>
+          <h4 className="text-2xl font-bold mb-1.5" style={{ color: '#0062a4' }}>
             {currentTip.title}
           </h4>
-          <p className="text-xs text-gray-700 leading-relaxed">
+          <p className="text-l font-semibold text-gray-700 leading-relaxed">
             {currentTip.description}
           </p>
         </div>
