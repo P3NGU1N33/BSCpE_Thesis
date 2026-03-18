@@ -6,6 +6,7 @@ import { WindMainTipsPanel } from './components/WindMainTipsPanel';
 import { WindHistoryPage } from './components/WindHistoryPage';
 import { Navigation } from 'lucide-react';
 import type { HighestWind } from "./types/wind";
+import { supabase } from "./lib/supabase";
 import { safeDatePartsUTC, degToCompass } from "./utils/wind";
 import iswaiLogo from './assets/iSWAI_logo.png';
 import schoolLogo from './assets/UC_logo.png';
@@ -37,23 +38,63 @@ function App() {
 
         await fetch("http://127.0.0.1:8000/predict/latest", { method: "POST" });
 
-        const r = await fetch("http://127.0.0.1:8000/history?limit=2000&order=desc");
-        if (!r.ok) throw new Error("Failed to load history");
+    //     const r = await fetch("http://127.0.0.1:8000/history?limit=2000&order=desc");
+    //     if (!r.ok) throw new Error("Failed to load history");
 
-        const data = await r.json();
-        if (!alive) return;
-        setHistoryRows(data.rows ?? []);
-      } catch (e: unknown) {
-        if (!alive) return;
-        setHistoryErr(e instanceof Error ? e.message : "Failed to load history");
-      } finally {
-        if (alive) setHistoryLoading(false);
-      }
-    };
+    //     const data = await r.json();
+    //     if (!alive) return;
+    //     setHistoryRows(data.rows ?? []);
+    //   } catch (e: unknown) {
+    //     if (!alive) return;
+    //     setHistoryErr(e instanceof Error ? e.message : "Failed to load history");
+    //   } finally {
+    //     if (alive) setHistoryLoading(false);
+    //   }
+    // };
+           const { data, error } = await supabase
+                .from("iswai_data")
+                .select(`
+                  id,
+                  timestamp,
+                  windspeed,
+                  winddir,
+                  pred_windspeed,
+                  pred_winddir,
+                  pred_timestamp
+                `)
+                .order("timestamp", { ascending: false })
+                .limit(300);
+
+              if (error) throw error;
+              if (!alive) return;
+
+              setHistoryRows((data ?? []) as HistoryRow[]);
+            } catch (e: unknown) {
+              if (!alive) return;
+              setHistoryErr(e instanceof Error ? e.message : "Failed to load history");
+            } finally {
+              if (alive) setHistoryLoading(false);
+            }
+          };
 
     load();
-    const timer = setInterval(load, 1800000); // every 30 mins
-    return () => { alive = false; clearInterval(timer); };
+    // const timer = setInterval(load, 1800000); // every 30 mins
+    // return () => { alive = false; clearInterval(timer); };
+    const channel = supabase
+      .channel("iswai_data_changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "iswai_data" },
+        () => {
+          load();
+        }
+      )
+    .subscribe();
+
+  return () => {
+    alive = false;
+    supabase.removeChannel(channel);
+  };
   }, []);
 
   const highestWind: HighestWind | null = useMemo(() => {
