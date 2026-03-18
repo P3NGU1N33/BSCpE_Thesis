@@ -99,6 +99,9 @@ export function WindHistoryPage({
   const [showCalendar, setShowCalendar] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  //For Table Loading
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLabel, setActionLabel] = useState("Loading...");
 
   // For ML charts - load CSVs when year changes
   useEffect(() => {
@@ -284,6 +287,17 @@ export function WindHistoryPage({
     return pages;
   };
 
+  const runWithUiLoading = (label: string, action: () => void) => {
+    setActionLabel(label);
+    setActionLoading(true);
+
+    action();
+
+    setTimeout(() => {
+      setActionLoading(false);
+    }, 400);
+  };
+
   return (
     <div className="space-y-4">
       {/* Wind History Summary Panel */}
@@ -345,9 +359,19 @@ export function WindHistoryPage({
           <label style={{ color: '#0062a4' }} className="text-sm">Sort by:</label>
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
+            disabled={actionLoading}
+            onChange={(e) =>
+              runWithUiLoading("Sorting records...", () => {
+                setSortBy(e.target.value);
+                setCurrentPage(1);
+              })
+            }
             style={{ borderColor: '#0062a4', backgroundColor: '#e0f2fe', color: '#0062a4' }}
-            className="px-3 py-1.5 text-sm rounded-lg focus:outline-none focus:ring-2"
+            className={`px-3 py-1.5 text-sm rounded-lg focus:outline-none focus:ring-2 transition-all ${
+              actionLoading
+                ? "opacity-60 cursor-not-allowed"
+                : "hover:ring-2 hover:ring-blue-300"
+            }`}
           >
             <option value="date-desc">Date (Newest First)</option>
             <option value="date-asc">Date (Oldest First)</option>
@@ -356,9 +380,20 @@ export function WindHistoryPage({
           </select>
         </div>
 
-        <button onClick={() => setShowCalendar((prev) => !prev)}
+        <button
+              disabled={actionLoading}
+              onClick={() =>
+                runWithUiLoading(
+                  showCalendar ? "Closing date filter..." : "Opening date filter...",
+                  () => setShowCalendar((prev) => !prev)
+                )
+              }
                 style={{ backgroundColor: '#0062a4' }}
-                className="flex items-center gap-2 px-4 py-1.5 text-sm text-white rounded-lg hover:opacity-90 transition-colors"
+                className={`flex items-center gap-2 px-4 py-1.5 text-sm text-white rounded-lg transition-all ${
+                actionLoading
+                  ? "opacity-60 cursor-not-allowed"
+                  : "hover:opacity-90"
+              }`}
         >
           <CalendarDays className="w-4 h-4" />
           Select Date Range
@@ -395,22 +430,42 @@ export function WindHistoryPage({
           </div>
 
           <button
-            onClick={() => {
-              setStartDate("");
-              setEndDate("");
-            }}
-            className="px-3 py-1.5 text-sm rounded-lg"
+           disabled={actionLoading}
+           onClick={() =>
+              runWithUiLoading("Clearing date filter...", () => {
+                setStartDate("");
+                setEndDate("");
+                setCurrentPage(1);
+              })
+            }
+            className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
+              actionLoading
+                ? "opacity-60 cursor-not-allowed"
+                : "hover:opacity-90"
+            }`}
             style={{ backgroundColor: "#e0f2fe", color: "#0062a4" }}
           >
-            Clear
+            {actionLoading ? "Clearing..." : "Clear"}
           </button>
 
           <button
-            onClick={() => setShowCalendar(false)}
-            className="px-4 py-1.5 text-sm rounded-lg text-white"
-            style={{ backgroundColor: "#0062a4" }}
+            disabled={actionLoading}
+            onClick={() =>
+              runWithUiLoading("Applying date filter...", () => {
+                setShowCalendar(false);
+                setCurrentPage(1);
+              })
+            }
+            className={`px-4 py-1.5 text-sm rounded-lg text-white transition-all ${
+              actionLoading
+                ? "opacity-60 cursor-not-allowed"
+                : "hover:opacity-90"
+            }`}
+            style={{
+              backgroundColor: actionLoading ? "#93c5fd" : "#0062a4"
+            }}
           >
-            Apply
+            {actionLoading ? "Applying..." : "Apply"}
           </button>
 
         </div>
@@ -432,10 +487,12 @@ export function WindHistoryPage({
             </thead>
           <tbody>
             {/* ✅ Loading */}
-            {tableLoading && (
+            {(tableLoading || actionLoading) && (
               <tr>
                 <td colSpan={6} className="px-4 py-6 text-center text-sm">
-                  <span style={{ color: "#0062a4" }}>Loading latest data…</span>
+                  <span style={{ color: "#0062a4" }}>
+                    {tableLoading ? "Loading latest data..." : actionLabel}
+                  </span>
                 </td>
               </tr>
             )}
@@ -450,7 +507,7 @@ export function WindHistoryPage({
             )}
 
             {/* ✅ Empty */}
-            {!tableLoading && !tableErr && currentData.length === 0 && (
+            {!tableLoading && !actionLoading && !tableErr && currentData.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-6 text-center text-sm">
                   <span style={{ color: "#0062a4" }}>No records found.</span>
@@ -460,6 +517,7 @@ export function WindHistoryPage({
 
             {/* ✅ Data */}
             {!tableLoading &&
+              !actionLoading &&
               !tableErr &&
               currentData.map((record, index) => (
                 <tr
@@ -554,14 +612,20 @@ export function WindHistoryPage({
 
             <div className="flex items-center gap-1">
               <button
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPageSafe === 1}
+                onClick={() =>
+                  runWithUiLoading("Loading previous page...", () => {
+                    setCurrentPage((prev) => Math.max(1, prev - 1));
+                  })
+                }
+                disabled={currentPageSafe === 1 || actionLoading}
                 style={{
-                  backgroundColor: currentPageSafe === 1 ? "#e0f2fe" : "white",
-                  color: currentPageSafe === 1 ? "#93c5fd" : "#0062a4",
+                  backgroundColor: currentPageSafe === 1 || actionLoading ? "#e0f2fe" : "white",
+                  color: currentPageSafe === 1 || actionLoading ? "#93c5fd" : "#0062a4",
                 }}
                 className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 ${
-                  currentPageSafe === 1 ? "cursor-not-allowed" : "hover:opacity-80"
+                  currentPageSafe === 1 || actionLoading
+                    ? 'cursor-not-allowed'
+                    : 'hover:opacity-80'
                 } transition-colors`}
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -570,27 +634,56 @@ export function WindHistoryPage({
 
               {getPageNumbers().map((page) => (
                 <button
+                  disabled = {actionLoading}
                   key={page}
-                  onClick={() => setCurrentPage(page)}
-                  style={{
-                    backgroundColor: currentPageSafe === page ? "#0062a4" : "white",
-                    color: currentPageSafe === page ? "white" : "#0062a4",
-                  }}
-                  className="px-3 py-1.5 text-sm rounded-lg transition-colors hover:opacity-80"
-                >
-                  {page}
+                  onClick={() =>
+                    runWithUiLoading(`Loading page ${page}...`, () => {
+                      setCurrentPage(page);
+                    })
+                  }
+                   style={{
+                      backgroundColor:
+                        currentPageSafe === page
+                          ? "#0062a4"
+                          : actionLoading
+                          ? "#e0f2fe"
+                          : "white",
+                      color:
+                        currentPageSafe === page
+                          ? "white"
+                          : actionLoading
+                          ? "#93c5fd"
+                          : "#0062a4",
+                    }}
+                    className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
+                      actionLoading
+                        ? "opacity-60 cursor-not-allowed"
+                        : "hover:opacity-80"
+                    }`}
+                  >
+                    {actionLoading && currentPageSafe === page ? (
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      page
+                    )}
                 </button>
               ))}
 
               <button
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={currentPageSafe === totalPages}
+                onClick={() =>
+                  runWithUiLoading("Loading next page...", () => {
+                    setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+                  })
+                }
+                disabled={currentPageSafe === totalPages || actionLoading}
                 style={{
-                  backgroundColor: currentPageSafe === totalPages ? "#e0f2fe" : "white",
-                  color: currentPageSafe === totalPages ? "#93c5fd" : "#0062a4",
+                  backgroundColor: currentPageSafe === totalPages || actionLoading ? "#e0f2fe" : "white",
+                  color: currentPageSafe === totalPages || actionLoading ? "#93c5fd" : "#0062a4",
                 }}
                 className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 ${
-                  currentPageSafe === totalPages ? "cursor-not-allowed" : "hover:opacity-80"
+                  currentPageSafe === 1 || actionLoading
+                    ? 'cursor-not-allowed'
+                    : 'hover:opacity-80'
                 } transition-colors`}
               >
                 Next
