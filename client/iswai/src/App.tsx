@@ -36,7 +36,7 @@ function App() {
         setHistoryLoading(true);
         setHistoryErr(null);
 
-        await fetch("http://127.0.0.1:8000/predict/latest", { method: "POST" });
+        // await fetch("http://127.0.0.1:8000/predict/latest", { method: "POST" });
 
     //     const r = await fetch("http://127.0.0.1:8000/history?limit=2000&order=desc");
     //     if (!r.ok) throw new Error("Failed to load history");
