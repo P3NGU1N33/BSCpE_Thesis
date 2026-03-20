@@ -5,9 +5,8 @@ import { WindTipsPanel } from './components/WindTipsPanel';
 import { WindMainTipsPanel } from './components/WindMainTipsPanel';
 import { WindHistoryPage } from './components/WindHistoryPage';
 import { Navigation } from 'lucide-react';
-import type { HighestWind } from "./types/wind";
 import { supabase } from "./lib/supabase";
-import { safeDatePartsUTC, degToCompass } from "./utils/wind";
+import { degToCompass } from "./utils/wind";
 import iswaiLogo from './assets/iSWAI_logo.png';
 import schoolLogo from './assets/UC_logo.png';
 
@@ -24,107 +23,64 @@ interface HistoryRow {
 function App() {
   const [activeNav, setActiveNav] = useState('Wind Alert');
   //For Fetching
-  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyErr, setHistoryErr] = useState<string | null>(null);
+  const [latestRow, setLatestRow] = useState<HistoryRow | null>(null);
+  const [latestLoading, setLatestLoading] = useState(false);
+  const [latestErr, setLatestErr] = useState<string | null>(null);
+ 
 
   useEffect(() => {
-  let alive = true;
+      let alive = true;
 
-    const load = async () => {
-      try {
-        setHistoryLoading(true);
-        setHistoryErr(null);
+      const loadLatest = async () => {
+        try {
+          setLatestLoading(true);
+          setLatestErr(null);
+          await fetch("http://127.0.0.1:8000/predict/latest", { method: "POST" });
+          const { data, error } = await supabase
+            .from("iswai_data")
+            .select(`
+              id,
+              timestamp,
+              windspeed,
+              winddir,
+              pred_windspeed,
+              pred_winddir,
+              pred_timestamp
+            `)
+            .order("timestamp", { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-        await fetch("http://127.0.0.1:8000/predict/latest", { method: "POST" });
+          if (error) throw error;
+          if (!alive) return;
 
-    //     const r = await fetch("http://127.0.0.1:8000/history?limit=2000&order=desc");
-    //     if (!r.ok) throw new Error("Failed to load history");
-
-    //     const data = await r.json();
-    //     if (!alive) return;
-    //     setHistoryRows(data.rows ?? []);
-    //   } catch (e: unknown) {
-    //     if (!alive) return;
-    //     setHistoryErr(e instanceof Error ? e.message : "Failed to load history");
-    //   } finally {
-    //     if (alive) setHistoryLoading(false);
-    //   }
-    // };
-           const { data, error } = await supabase
-                .from("iswai_data")
-                .select(`
-                  id,
-                  timestamp,
-                  windspeed,
-                  winddir,
-                  pred_windspeed,
-                  pred_winddir,
-                  pred_timestamp
-                `)
-                .order("timestamp", { ascending: false })
-                .limit(300);
-
-              if (error) throw error;
-              if (!alive) return;
-
-              setHistoryRows((data ?? []) as HistoryRow[]);
-            } catch (e: unknown) {
-              if (!alive) return;
-              setHistoryErr(e instanceof Error ? e.message : "Failed to load history");
-            } finally {
-              if (alive) setHistoryLoading(false);
-            }
-          };
-
-    load();
-    // const timer = setInterval(load, 1800000); // every 30 mins
-    // return () => { alive = false; clearInterval(timer); };
-    const channel = supabase
-      .channel("iswai_data_changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "iswai_data" },
-        () => {
-          load();
+          setLatestRow((data as HistoryRow | null) ?? null);
+        } catch (e: unknown) {
+          if (!alive) return;
+          setLatestErr(e instanceof Error ? e.message : "Failed to load latest row");
+        } finally {
+          if (alive) setLatestLoading(false);
         }
-      )
-    .subscribe();
+      };
 
-  return () => {
-    alive = false;
-    supabase.removeChannel(channel);
-  };
-  }, []);
+      loadLatest();
 
-  const highestWind: HighestWind | null = useMemo(() => {
-    if (!historyRows.length) return null;
+      const channel = supabase
+        .channel("iswai_data_latest_changes")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "iswai_data" },
+          () => {
+            loadLatest();
+          }
+        )
+        .subscribe();
 
-    let best: HighestWind | null = null;
-
-    for (const r of historyRows) {
-      const speed = Number(r.windspeed);
-      if (!Number.isFinite(speed)) continue;
-
-      const dt = safeDatePartsUTC(r.timestamp);
-      if (!dt.valid) continue;
-
-      const dirDeg = Number(r.winddir);
-      const directionDeg = Number.isFinite(dirDeg) ? dirDeg : 0;
-
-      if (!best || speed > best.speed) {
-        best = { speed, date: dt.date, time: dt.time, directionDeg };
-      }
-    }
-    return best;
-  }, [historyRows]);
-  
-  //Getting the latest row for current conditions (if needed in the future)
-  const latestRow = useMemo(() => {
-    if (!historyRows.length) return null;
-    // since you request order=desc, index 0 should be newest
-    return historyRows[0];
-  }, [historyRows]);
+      return () => {
+        alive = false;
+        supabase.removeChannel(channel);
+      };
+    }, []);
 
   // Mock data for current conditions
   const currentWind = useMemo(() => {
@@ -237,20 +193,33 @@ function App() {
             <div className="lg:col-span-5">
               {/* Wind Forecast Panel */}
               <div
-  className="rounded-2xl p-3 shadow-md h-full"
-  style={{
-    backgroundColor: 'rgba(255, 255, 255, 0.45)', 
-    borderColor: '#0062a4',
-    borderWidth: '1px',
-    borderStyle: 'solid'
-  }}
->
+                className="rounded-2xl p-3 shadow-md h-full"
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.45)', 
+                  borderColor: '#0062a4',
+                  borderWidth: '1px',
+                  borderStyle: 'solid'
+                }}
+              >
 
                 {/* Panel Header */}
                 <div className="flex items-center gap-2 mb-1.5">
                   <Navigation className="w-5 h-5" style={{ color: '#0062a4' }} />
                   <h2 className="text-2xl font-bold" style={{ color: '#0062a4' }}>Wind Forecast</h2>
                 </div>
+
+                {latestLoading && (
+                  <div className="mb-3 text-sm" style={{ color: "#0062a4" }}>
+                    Loading latest wind data...
+                  </div>
+                )}
+
+                {latestErr && (
+                  <div className="mb-3 text-sm text-red-600">
+                    {latestErr}
+                  </div>
+                )}
+
 
                 {/* Current Conditions */}
                 <div className="mb-2">
@@ -299,9 +268,6 @@ function App() {
             <div className="lg:col-span-2 flex flex-col space-y-3">
               <WindHistoryPanel
                 onNavigate={() => handleNavClick("Wind History")}
-                highestWind={highestWind}
-                loading={historyLoading}
-                error={historyErr}
               />
               <div className="flex-1">
                 <WindMainTipsPanel onNavigate={() => handleNavClick('Wind Tips')} />
@@ -312,10 +278,6 @@ function App() {
 
         {activeNav === "Wind History" && (
           <WindHistoryPage
-            apiRows={historyRows}
-            tableLoading={historyLoading}
-            tableErr={historyErr}
-            highestWind={highestWind}
           />
         )}
 

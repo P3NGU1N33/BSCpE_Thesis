@@ -1,13 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { TrendingUp, Calendar, Clock, Navigation, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
+import {
+  TrendingUp,
+  Calendar,
+  Clock,
+  Navigation,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+} from "lucide-react";
 import Papa from "papaparse";
 import TimelineChart from "./TimelineChart";
 import type { HighestWind } from "../types/wind";
 import { degToCompass } from "../utils/wind";
+import { supabase } from "../lib/supabase";
 
 type Year = 2022 | 2023 | 2024 | 2025 | 2026;
 
-const HIGH_ALERT_KMH = 22; // change this if your own rule is different
+const HIGH_ALERT_KMH = 22;
+const ITEMS_PER_PAGE = 10;
+const TABLE_NAME = "iswai_data";
 
 type WindSpeedRow = {
   datetime: string;
@@ -32,20 +43,20 @@ type ApiRow = {
 
 type TableRow = {
   id: number;
-  ts: number;              // numeric timestamp for sorting
-  date: string;            // YYYY-MM-DD (UTC)
-  time: string;            // hh:mm AM/PM (UTC)
+  ts: number;
+  date: string;
+  time: string;
   currentSpeed: number;
   predictedSpeed: number | null;
   currentDirDeg: number;
   predictedDirDeg: number | null;
 };
 
-type WindHistoryPageProps = {
-  apiRows: ApiRow[];
-  tableLoading: boolean;
-  tableErr: string | null;
-  highestWind: HighestWind | null;
+type SummaryState = {
+  daysMonitored: number;
+  avgWind: number;
+  highAlerts: number;
+  safeDaysPct: number;
 };
 
 async function loadCsv<T>(path: string): Promise<T[]> {
@@ -62,7 +73,7 @@ async function loadCsv<T>(path: string): Promise<T[]> {
     });
   });
 }
-//Date Parsing Helper
+
 function safeDateParts(datetime: unknown) {
   const d = new Date(String(datetime));
   const t = d.getTime();
@@ -73,39 +84,50 @@ function safeDateParts(datetime: unknown) {
 
   const date = d.toLocaleDateString("en-CA", { timeZone: "UTC" });
   const time = d.toLocaleTimeString("en-US", {
-  timeZone: "UTC",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: true,
-});
+    timeZone: "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
   return { valid: true as const, date, time, ts: t };
 }
 
-
-export function WindHistoryPage({
-  apiRows,
-  tableLoading,
-  tableErr,
-  highestWind,
-}: WindHistoryPageProps) {
+export function WindHistoryPage() {
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortBy, setSortBy] = useState('date-desc');
-  // For years ML chart
+  const [sortBy, setSortBy] = useState("date-desc");
+
   const [year, setYear] = useState<Year>(2026);
   const [speedRaw, setSpeedRaw] = useState<WindSpeedRow[]>([]);
   const [dirRaw, setDirRaw] = useState<WindDirRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+
   const [showCalendar, setShowCalendar] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  //For Table Loading
+
   const [actionLoading, setActionLoading] = useState(false);
   const [actionLabel, setActionLabel] = useState("Loading...");
 
-  // For ML charts - load CSVs when year changes
+  const [apiRows, setApiRows] = useState<ApiRow[]>([]);
+  const [tableLoading, setTableLoading] = useState(true);
+  const [tableErr, setTableErr] = useState<string | null>(null);
+  const [totalRecords, setTotalRecords] = useState(0);
+
+  const [highestWind, setHighestWind] = useState<HighestWind | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summary, setSummary] = useState<SummaryState>({
+    daysMonitored: 0,
+    avgWind: 0,
+    highAlerts: 0,
+    safeDaysPct: 0,
+  });
+
   useEffect(() => {
     let alive = true;
+    setLoading(true);
+    setErr(null);
 
     Promise.all([
       loadCsv<WindSpeedRow>(`/data/windspeed_${year}_pred.csv`),
@@ -130,128 +152,188 @@ export function WindHistoryPage({
     };
   }, [year]);
 
-  //For historical Data Table - sort whenever apiRows or sortBy changes
-  const tableData: TableRow[] = useMemo(() => {
-  return apiRows.map((r) => {
-    const dt = safeDateParts(r.timestamp);
+  useEffect(() => {
+    const fetchTablePage = async () => {
+      try {
+        setTableLoading(true);
+        setTableErr(null);
 
-      // If invalid datetime, skip this row (recommended)
-      if (!dt.valid) return null;
+        const from = (currentPage - 1) * ITEMS_PER_PAGE;
+        const to = from + ITEMS_PER_PAGE - 1;
 
-    const currentSpeed = Number(r.windspeed);
-    const predictedSpeed = r.pred_windspeed == null ? null : Number(r.pred_windspeed);
+        let query = supabase
+          .from(TABLE_NAME)
+          .select(
+            "id,timestamp,windspeed,pred_windspeed,winddir,pred_winddir",
+            { count: "exact" }
+          );
 
-    const currentDirDeg = Number(r.winddir);
-    const predictedDirDeg = r.pred_winddir == null ? null : Number(r.pred_winddir);
+        if (startDate) {
+          query = query.gte("timestamp", `${startDate}T00:00:00Z`);
+        }
 
-    return {
-      id: r.id,
-      date: dt.date,
-      time: dt.time,
-      ts: dt.ts,
-      currentSpeed,
-      predictedSpeed,
-      currentDirDeg,
-      predictedDirDeg,
-    };
-  }).filter((record): record is NonNullable<typeof record> => record !== null);
-}, [apiRows]);
+        if (endDate) {
+          query = query.lte("timestamp", `${endDate}T23:59:59Z`);
+        }
 
-  //Computes the summary of the table like stats 
-  const summary = useMemo(() => {
-  // Ignore invalid speeds
-  const rows = tableData.filter(r => Number.isFinite(r.currentSpeed));
+        if (sortBy === "date-asc") {
+          query = query.order("timestamp", { ascending: true });
+        } else if (sortBy === "date-desc") {
+          query = query.order("timestamp", { ascending: false });
+        } else if (sortBy === "speed-asc") {
+          query = query.order("windspeed", { ascending: true });
+        } else if (sortBy === "speed-desc") {
+          query = query.order("windspeed", { ascending: false });
+        }
 
-  if (rows.length === 0) {
-    return {
-      daysMonitored: 0,
-      avgWind: 0,
-      highAlerts: 0,
-      safeDaysPct: 0,
-    };
-  }
+        const { data, error, count } = await query.range(from, to);
 
-  // Average wind across ALL records
-  const sum = rows.reduce((acc, r) => acc + r.currentSpeed, 0);
-  const avgWind = sum / rows.length;
+        if (error) throw error;
 
-  // Group by day and track max wind per day
-  const dayMax = new Map<string, number>();
-  let highAlerts = 0;
-
-  for (const r of rows) {
-    // count high-alert rows (events)
-    if (r.currentSpeed >= HIGH_ALERT_KMH) highAlerts++;
-
-    // max wind per date
-    const prev = dayMax.get(r.date);
-    if (prev == null || r.currentSpeed > prev) {
-      dayMax.set(r.date, r.currentSpeed);
-    }
-  }
-
-  const daysMonitored = dayMax.size;
-
-  // safe day if max wind that day is below threshold
-  let safeDays = 0;
-  for (const maxV of dayMax.values()) {
-    if (maxV < HIGH_ALERT_KMH) safeDays++;
-  }
-
-  const safeDaysPct = daysMonitored === 0 ? 0 : (safeDays / daysMonitored) * 100;
-
-  return {
-    daysMonitored,
-    avgWind,
-    highAlerts,
-    safeDaysPct,
-  };
-}, [tableData]);
-
-
-  // Date range + sort 
-  const filteredSortedTableData = useMemo(() => {
-    // 1) filter by date range
-    let data = tableData;
-
-    if (startDate) {
-      data = data.filter((r) => r.date >= startDate);
-    }
-    if (endDate) {
-      data = data.filter((r) => r.date <= endDate);
-    }
-      // Sort copy only when needed
-      const sorted = [...data];
-      // 2) sort
-      switch (sortBy) {
-        case "date-asc":
-          sorted.sort((a, b) => a.ts - b.ts);
-          break;
-        case "date-desc":
-          sorted.sort((a, b) => b.ts - a.ts);
-          break;
-        case "speed-asc":
-          sorted.sort((a, b) => a.currentSpeed - b.currentSpeed);
-          break;
-        case "speed-desc":
-          sorted.sort((a, b) => b.currentSpeed - a.currentSpeed);
-          break;
+        setApiRows((data as ApiRow[]) ?? []);
+        setTotalRecords(count ?? 0);
+      } catch (e: unknown) {
+        const message =
+          e instanceof Error ? e.message : "Failed to fetch paginated table data.";
+        setTableErr(message);
+      } finally {
+        setTableLoading(false);
       }
+    };
 
-      return sorted;
-  }, [tableData, sortBy, startDate, endDate]);
+    fetchTablePage();
+  }, [currentPage, sortBy, startDate, endDate]);
 
-  // Recharts wants numeric x-axis (timestamp)
+  useEffect(() => {
+    const fetchSummary = async () => {
+      try {
+        setSummaryLoading(true);
+
+        const { data, error } = await supabase
+          .from(TABLE_NAME)
+          .select("timestamp,windspeed,winddir");
+
+        if (error) throw error;
+
+        const rows = (data ?? [])
+          .map((r) => {
+            const dt = safeDateParts(r.timestamp);
+            const speed = Number(r.windspeed);
+            const directionDeg = Number(r.winddir);
+
+            if (!dt.valid || !Number.isFinite(speed) || !Number.isFinite(directionDeg)) {
+              return null;
+            }
+
+            return {
+              date: dt.date,
+              time: dt.time,
+              speed,
+              directionDeg,
+            };
+          })
+          .filter((r): r is NonNullable<typeof r> => r !== null);
+
+        if (rows.length === 0) {
+          setHighestWind(null);
+          setSummary({
+            daysMonitored: 0,
+            avgWind: 0,
+            highAlerts: 0,
+            safeDaysPct: 0,
+          });
+          return;
+        }
+
+        let maxWind = rows[0];
+        for (const row of rows) {
+          if (row.speed > maxWind.speed) {
+            maxWind = row;
+          }
+        }
+
+        const totalWind = rows.reduce((sum, row) => sum + row.speed, 0);
+        const avgWind = totalWind / rows.length;
+        const highAlerts = rows.filter((row) => row.speed >= HIGH_ALERT_KMH).length;
+
+        const dayMax = new Map<string, number>();
+        for (const row of rows) {
+          const prev = dayMax.get(row.date);
+          if (prev == null || row.speed > prev) {
+            dayMax.set(row.date, row.speed);
+          }
+        }
+
+        const daysMonitored = dayMax.size;
+
+        let safeDays = 0;
+        for (const max of dayMax.values()) {
+          if (max < HIGH_ALERT_KMH) safeDays++;
+        }
+
+        const safeDaysPct =
+          daysMonitored === 0 ? 0 : (safeDays / daysMonitored) * 100;
+
+        setHighestWind(maxWind);
+        setSummary({
+          daysMonitored,
+          avgWind,
+          highAlerts,
+          safeDaysPct,
+        });
+      } catch (e) {
+        console.error("Summary fetch failed:", e);
+      } finally {
+        setSummaryLoading(false);
+      }
+    };
+
+    fetchSummary();
+  }, []);
+
+  const tableData: TableRow[] = useMemo(() => {
+    return apiRows
+      .map((r) => {
+        const dt = safeDateParts(r.timestamp);
+        if (!dt.valid) return null;
+
+        const currentSpeed = Number(r.windspeed);
+        const predictedSpeed =
+          r.pred_windspeed == null ? null : Number(r.pred_windspeed);
+
+        const currentDirDeg = Number(r.winddir);
+        const predictedDirDeg =
+          r.pred_winddir == null ? null : Number(r.pred_winddir);
+
+        return {
+          id: r.id,
+          date: dt.date,
+          time: dt.time,
+          ts: dt.ts,
+          currentSpeed,
+          predictedSpeed,
+          currentDirDeg,
+          predictedDirDeg,
+        };
+      })
+      .filter((record): record is NonNullable<typeof record> => record !== null);
+  }, [apiRows]);
+
   const speedData = useMemo(() => {
     return speedRaw
       .map((r) => {
         const t = new Date(String(r.datetime)).getTime();
         const actual = Number(r.windspeed);
         const pred = Number(r.pred_windspeed);
-        if (!Number.isFinite(t) || !Number.isFinite(actual) || !Number.isFinite(pred)) return null;
+        if (!Number.isFinite(t) || !Number.isFinite(actual) || !Number.isFinite(pred)) {
+          return null;
+        }
         return { t, windspeed: actual, pred_windspeed: pred };
       })
-      .filter((item): item is { t: number; windspeed: number; pred_windspeed: number } => item !== null);
+      .filter(
+        (item): item is { t: number; windspeed: number; pred_windspeed: number } =>
+          item !== null
+      );
   }, [speedRaw]);
 
   const dirData = useMemo(() => {
@@ -260,30 +342,34 @@ export function WindHistoryPage({
         const t = new Date(String(r.datetime)).getTime();
         const actual = Number(r.winddir);
         const pred = Number(r.pred_winddir);
-        if (!Number.isFinite(t) || !Number.isFinite(actual) || !Number.isFinite(pred)) return null;
+        if (!Number.isFinite(t) || !Number.isFinite(actual) || !Number.isFinite(pred)) {
+          return null;
+        }
         return { t, winddir: actual, pred_winddir: pred };
       })
-      .filter((item): item is { t: number; winddir: number; pred_winddir: number } => item !== null);
+      .filter(
+        (item): item is { t: number; winddir: number; pred_winddir: number } =>
+          item !== null
+      );
   }, [dirRaw]);
-  
-  const itemsPerPage = 10;
 
-  
-  const totalRecords = filteredSortedTableData.length;
-  const totalPages = Math.max(1, Math.ceil(totalRecords / itemsPerPage));
-  const currentPageSafe = useMemo(() => Math.min(currentPage, totalPages),[currentPage, totalPages]);
-  const startIndex = (currentPageSafe - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentData = useMemo(() => filteredSortedTableData.slice(startIndex, endIndex),[filteredSortedTableData, startIndex, endIndex]);
+  const totalPages = Math.max(1, Math.ceil(totalRecords / ITEMS_PER_PAGE));
+  const currentPageSafe = Math.min(currentPage, totalPages);
+  const currentData = tableData;
 
-  const showingFrom = totalRecords === 0 ? 0 : startIndex + 1;
-  const showingTo = Math.min(endIndex, totalRecords);
+  const showingFrom =
+    totalRecords === 0 ? 0 : (currentPageSafe - 1) * ITEMS_PER_PAGE + 1;
+  const showingTo = Math.min(currentPageSafe * ITEMS_PER_PAGE, totalRecords);
 
   const getPageNumbers = () => {
-    const pages = [];
-    for (let i = 1; i <= totalPages; i++) {
+    const pages: number[] = [];
+    const start = Math.max(1, currentPageSafe - 2);
+    const end = Math.min(totalPages, currentPageSafe + 2);
+
+    for (let i = start; i <= end; i++) {
       pages.push(i);
     }
+
     return pages;
   };
 
@@ -299,9 +385,12 @@ export function WindHistoryPage({
   };
 
   return (
+    // Wind Summary Section
     <div className="space-y-4">
-      {/* Wind History Summary Panel */}
-      <div style={{ backgroundColor: '#0062a4' }} className="rounded-xl p-6 shadow-lg text-white">
+      <div
+        style={{ backgroundColor: "#0062a4" }}
+        className="rounded-xl p-6 shadow-lg text-white"
+      >
         <div className="flex items-center gap-2 mb-5">
           <TrendingUp className="w-6 h-6" />
           <h2 className="text-white text-xl">Wind History Summary</h2>
@@ -311,52 +400,78 @@ export function WindHistoryPage({
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-5 border border-white/20">
             <div className="text-sm text-blue-200 mb-3">Highest Recorded Wind</div>
             <div className="flex items-end gap-2 mb-4">
-              <div className="text-6xl">{highestWind ? highestWind.speed.toFixed(1) : "—"}</div>
+              <div className="text-6xl">
+                {summaryLoading || !highestWind ? "—" : highestWind.speed.toFixed(1)}
+              </div>
               <div className="text-2xl text-blue-200 pb-1.5">km/h</div>
             </div>
+
             <div className="space-y-2.5">
               <div className="flex items-center gap-2 text-sm">
                 <Calendar className="w-4 h-4 text-blue-300" />
-                <span className="text-blue-100">{highestWind ? highestWind.date : "—"}</span>
+                <span className="text-blue-100">
+                  {summaryLoading || !highestWind ? "—" : highestWind.date}
+                </span>
               </div>
+
               <div className="flex items-center gap-2 text-sm">
                 <Clock className="w-4 h-4 text-blue-300" />
-                <span className="text-blue-100">{highestWind ? highestWind.time : "—"}</span>
+                <span className="text-blue-100">
+                  {summaryLoading || !highestWind ? "—" : highestWind.time}
+                </span>
               </div>
+
               <div className="flex items-center gap-2 text-sm">
                 <Navigation className="w-4 h-4 text-blue-300" />
-                <span className="text-blue-100">{highestWind
-                  ? `${Math.round(highestWind.directionDeg)}° ${degToCompass(highestWind.directionDeg)}`
-                  : "—"}</span>
+                <span className="text-blue-100">
+                  {summaryLoading || !highestWind
+                    ? "—"
+                    : `${Math.round(highestWind.directionDeg)}° ${degToCompass(
+                        highestWind.directionDeg
+                      )}`}
+                </span>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white/5 rounded-lg p-4 text-center">
-              <div className="text-4xl">{tableLoading ? "—" : summary.daysMonitored}</div>
+              <div className="text-4xl">
+                {summaryLoading ? "—" : summary.daysMonitored}
+              </div>
               <div className="text-sm text-blue-300 mt-1.5">Days Monitored</div>
             </div>
+
             <div className="bg-white/5 rounded-lg p-4 text-center">
-              <div className="text-4xl">{tableLoading ? "—" : summary.avgWind.toFixed(1)}</div>
+              <div className="text-4xl">
+                {summaryLoading ? "—" : summary.avgWind.toFixed(1)}
+              </div>
               <div className="text-sm text-blue-300 mt-1.5">Avg Wind (km/h)</div>
             </div>
+
             <div className="bg-white/5 rounded-lg p-4 text-center">
-              <div className="text-4xl">{tableLoading ? "—" : summary.highAlerts}</div>
+              <div className="text-4xl">
+                {summaryLoading ? "—" : summary.highAlerts}
+              </div>
               <div className="text-sm text-blue-300 mt-1.5">High Alerts</div>
             </div>
+
             <div className="bg-white/5 rounded-lg p-4 text-center">
-              <div className="text-4xl">{tableLoading ? "—" : `${Math.round(summary.safeDaysPct)}%`}</div>
+              <div className="text-4xl">
+                {summaryLoading ? "—" : `${Math.round(summary.safeDaysPct)}%`}
+              </div>
               <div className="text-sm text-blue-300 mt-1.5">Safe Days</div>
             </div>
           </div>
         </div>
       </div>
-
-      {/* Filters */}
+      {/* Filter Section */}
       <div className="flex items-center justify-between bg-white rounded-lg p-3 shadow-sm border border-blue-100">
         <div className="flex items-center gap-3">
-          <label style={{ color: '#0062a4' }} className="text-sm">Sort by:</label>
+          <label style={{ color: "#0062a4" }} className="text-sm">
+            Sort by:
+          </label>
+
           <select
             value={sortBy}
             disabled={actionLoading}
@@ -366,7 +481,11 @@ export function WindHistoryPage({
                 setCurrentPage(1);
               })
             }
-            style={{ borderColor: '#0062a4', backgroundColor: '#e0f2fe', color: '#0062a4' }}
+            style={{
+              borderColor: "#0062a4",
+              backgroundColor: "#e0f2fe",
+              color: "#0062a4",
+            }}
             className={`px-3 py-1.5 text-sm rounded-lg focus:outline-none focus:ring-2 transition-all ${
               actionLoading
                 ? "opacity-60 cursor-not-allowed"
@@ -381,19 +500,17 @@ export function WindHistoryPage({
         </div>
 
         <button
-              disabled={actionLoading}
-              onClick={() =>
-                runWithUiLoading(
-                  showCalendar ? "Closing date filter..." : "Opening date filter...",
-                  () => setShowCalendar((prev) => !prev)
-                )
-              }
-                style={{ backgroundColor: '#0062a4' }}
-                className={`flex items-center gap-2 px-4 py-1.5 text-sm text-white rounded-lg transition-all ${
-                actionLoading
-                  ? "opacity-60 cursor-not-allowed"
-                  : "hover:opacity-90"
-              }`}
+          disabled={actionLoading}
+          onClick={() =>
+            runWithUiLoading(
+              showCalendar ? "Closing date filter..." : "Opening date filter...",
+              () => setShowCalendar((prev) => !prev)
+            )
+          }
+          style={{ backgroundColor: "#0062a4" }}
+          className={`flex items-center gap-2 px-4 py-1.5 text-sm text-white rounded-lg transition-all ${
+            actionLoading ? "opacity-60 cursor-not-allowed" : "hover:opacity-90"
+          }`}
         >
           <CalendarDays className="w-4 h-4" />
           Select Date Range
@@ -402,7 +519,6 @@ export function WindHistoryPage({
 
       {showCalendar && (
         <div className="mt-3 bg-white rounded-lg p-4 shadow-sm border border-blue-100 flex items-end gap-4 flex-wrap">
-
           <div>
             <label className="text-xs" style={{ color: "#0062a4" }}>
               Start Date
@@ -430,8 +546,8 @@ export function WindHistoryPage({
           </div>
 
           <button
-           disabled={actionLoading}
-           onClick={() =>
+            disabled={actionLoading}
+            onClick={() =>
               runWithUiLoading("Clearing date filter...", () => {
                 setStartDate("");
                 setEndDate("");
@@ -439,9 +555,7 @@ export function WindHistoryPage({
               })
             }
             className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
-              actionLoading
-                ? "opacity-60 cursor-not-allowed"
-                : "hover:opacity-90"
+              actionLoading ? "opacity-60 cursor-not-allowed" : "hover:opacity-90"
             }`}
             style={{ backgroundColor: "#e0f2fe", color: "#0062a4" }}
           >
@@ -457,25 +571,21 @@ export function WindHistoryPage({
               })
             }
             className={`px-4 py-1.5 text-sm rounded-lg text-white transition-all ${
-              actionLoading
-                ? "opacity-60 cursor-not-allowed"
-                : "hover:opacity-90"
+              actionLoading ? "opacity-60 cursor-not-allowed" : "hover:opacity-90"
             }`}
             style={{
-              backgroundColor: actionLoading ? "#93c5fd" : "#0062a4"
+              backgroundColor: actionLoading ? "#93c5fd" : "#0062a4",
             }}
           >
             {actionLoading ? "Applying..." : "Apply"}
           </button>
-
         </div>
       )}
-
       {/* Data Table */}
       <div className="bg-white rounded-xl shadow-md border border-blue-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-          <thead style={{ backgroundColor: '#0062a4' }} className="text-white">
+            <thead style={{ backgroundColor: "#0062a4" }} className="text-white">
               <tr>
                 <th className="px-4 py-3 text-left text-sm">Date</th>
                 <th className="px-4 py-3 text-left text-sm">Time</th>
@@ -485,126 +595,100 @@ export function WindHistoryPage({
                 <th className="px-4 py-3 text-center text-sm">Predicted Direction</th>
               </tr>
             </thead>
-          <tbody>
-            {/* ✅ Loading */}
-            {(tableLoading || actionLoading) && (
-              <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-sm">
-                  <span style={{ color: "#0062a4" }}>
-                    {tableLoading ? "Loading latest data..." : actionLabel}
-                  </span>
-                </td>
-              </tr>
-            )}
 
-            {/* ✅ Error */}
-            {!tableLoading && tableErr && (
-              <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-sm">
-                  <span className="text-red-600">{tableErr}</span>
-                </td>
-              </tr>
-            )}
-
-            {/* ✅ Empty */}
-            {!tableLoading && !actionLoading && !tableErr && currentData.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-sm">
-                  <span style={{ color: "#0062a4" }}>No records found.</span>
-                </td>
-              </tr>
-            )}
-
-            {/* ✅ Data */}
-            {!tableLoading &&
-              !actionLoading &&
-              !tableErr &&
-              currentData.map((record, index) => (
-                <tr
-                  key={record.id ?? `${record.date}-${record.time}-${index}`}
-                  className={`${
-                    index % 2 === 0 ? "bg-blue-50" : "bg-white"
-                  } hover:bg-blue-100 transition-colors`}
-                >
-                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-sm">
-                    {record.date}
-                  </td>
-
-                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-sm">
-                    {record.time}
-                  </td>
-
-                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
-                    {Number.isFinite(record.currentSpeed)
-                      ? `${record.currentSpeed.toFixed(1)} km/h`
-                      : "—"}
-                  </td>
-
-                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
-                    {record.predictedSpeed == null || !Number.isFinite(record.predictedSpeed)
-                      ? "—"
-                      : `${record.predictedSpeed.toFixed(1)} km/h`}
-                  </td>
-
-                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
-                    {Number.isFinite(record.currentDirDeg)
-                      ? `${record.currentDirDeg.toFixed(1)} ° ${degToCompass(record.currentDirDeg)}`
-                      : "—"}
-                  </td>
-
-                  <td style={{ color: "#0062a4" }} className="px-4 py-3 text-center text-sm">
-                    {record.predictedDirDeg == null || !Number.isFinite(record.predictedDirDeg)
-                      ? "—"
-                      : `${record.predictedDirDeg.toFixed(1)} ° ${degToCompass(record.predictedDirDeg)}`}
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-          </table>
-
-          {/* <table className="w-full">
-            <thead style={{ backgroundColor: '#0062a4' }} className="text-white">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm">Date</th>
-                <th className="px-4 py-3 text-left text-sm">Time</th>
-                <th className="px-4 py-3 text-center text-sm">Current Wind Speed</th>
-                <th className="px-4 py-3 text-center text-sm">Predicted Wind Speed</th>
-                <th className="px-4 py-3 text-center text-sm">Current Direction</th>
-                <th className="px-4 py-3 text-center text-sm">Predicted Direction</th>
-              </tr>
-            </thead>
             <tbody>
-              {currentData.map((record, index) => (
-                <tr
-                  key={index}
-                  className={`${
-                    index % 2 === 0 ? 'bg-blue-50' : 'bg-white'
-                  } hover:bg-blue-100 transition-colors`}
-                >
-                  <td style={{ color: '#0062a4' }} className="px-4 py-3 text-sm">{record.date}</td>
-                  <td style={{ color: '#0062a4' }} className="px-4 py-3 text-sm">{record.time}</td>
-                  <td style={{ color: '#0062a4' }} className="px-4 py-3 text-center text-sm">
-                    {record.currentSpeed} km/h
-                  </td>
-                  <td style={{ color: '#0062a4' }} className="px-4 py-3 text-center text-sm">
-                    {record.predictedSpeed} km/h
-                  </td>
-                  <td style={{ color: '#0062a4' }} className="px-4 py-3 text-center text-sm">
-                    {record.currentDir}
-                  </td>
-                  <td style={{ color: '#0062a4' }} className="px-4 py-3 text-center text-sm">
-                    {record.predictedDir}
+              {(tableLoading || actionLoading) && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-sm">
+                    <span style={{ color: "#0062a4" }}>
+                      {tableLoading ? "Loading latest data..." : actionLabel}
+                    </span>
                   </td>
                 </tr>
-              ))}
+              )}
+
+              {!tableLoading && tableErr && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-sm">
+                    <span className="text-red-600">{tableErr}</span>
+                  </td>
+                </tr>
+              )}
+
+              {!tableLoading && !actionLoading && !tableErr && currentData.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-sm">
+                    <span style={{ color: "#0062a4" }}>No records found.</span>
+                  </td>
+                </tr>
+              )}
+
+              {!tableLoading &&
+                !actionLoading &&
+                !tableErr &&
+                currentData.map((record, index) => (
+                  <tr
+                    key={record.id ?? `${record.date}-${record.time}-${index}`}
+                    className={`${
+                      index % 2 === 0 ? "bg-blue-50" : "bg-white"
+                    } hover:bg-blue-100 transition-colors`}
+                  >
+                    <td style={{ color: "#0062a4" }} className="px-4 py-3 text-sm">
+                      {record.date}
+                    </td>
+
+                    <td style={{ color: "#0062a4" }} className="px-4 py-3 text-sm">
+                      {record.time}
+                    </td>
+
+                    <td
+                      style={{ color: "#0062a4" }}
+                      className="px-4 py-3 text-center text-sm"
+                    >
+                      {Number.isFinite(record.currentSpeed)
+                        ? `${record.currentSpeed.toFixed(1)} km/h`
+                        : "—"}
+                    </td>
+
+                    <td
+                      style={{ color: "#0062a4" }}
+                      className="px-4 py-3 text-center text-sm"
+                    >
+                      {record.predictedSpeed == null ||
+                      !Number.isFinite(record.predictedSpeed)
+                        ? "—"
+                        : `${record.predictedSpeed.toFixed(1)} km/h`}
+                    </td>
+
+                    <td
+                      style={{ color: "#0062a4" }}
+                      className="px-4 py-3 text-center text-sm"
+                    >
+                      {Number.isFinite(record.currentDirDeg)
+                        ? `${record.currentDirDeg.toFixed(1)} ° ${degToCompass(
+                            record.currentDirDeg
+                          )}`
+                        : "—"}
+                    </td>
+
+                    <td
+                      style={{ color: "#0062a4" }}
+                      className="px-4 py-3 text-center text-sm"
+                    >
+                      {record.predictedDirDeg == null ||
+                      !Number.isFinite(record.predictedDirDeg)
+                        ? "—"
+                        : `${record.predictedDirDeg.toFixed(1)} ° ${degToCompass(
+                            record.predictedDirDeg
+                          )}`}
+                    </td>
+                  </tr>
+                ))}
             </tbody>
-          </table> */}
+          </table>
         </div>
-
-        {/* Pagination */}
+        {/* PAgination */}
         <div className="bg-blue-50 px-4 py-3 border-t border-blue-200">
-
-
           <div className="flex items-center justify-between">
             <div style={{ color: "#0062a4" }} className="text-sm">
               Showing {showingFrom} to {showingTo} of {totalRecords} records
@@ -619,13 +703,15 @@ export function WindHistoryPage({
                 }
                 disabled={currentPageSafe === 1 || actionLoading}
                 style={{
-                  backgroundColor: currentPageSafe === 1 || actionLoading ? "#e0f2fe" : "white",
-                  color: currentPageSafe === 1 || actionLoading ? "#93c5fd" : "#0062a4",
+                  backgroundColor:
+                    currentPageSafe === 1 || actionLoading ? "#e0f2fe" : "white",
+                  color:
+                    currentPageSafe === 1 || actionLoading ? "#93c5fd" : "#0062a4",
                 }}
                 className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 ${
                   currentPageSafe === 1 || actionLoading
-                    ? 'cursor-not-allowed'
-                    : 'hover:opacity-80'
+                    ? "cursor-not-allowed"
+                    : "hover:opacity-80"
                 } transition-colors`}
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -634,38 +720,38 @@ export function WindHistoryPage({
 
               {getPageNumbers().map((page) => (
                 <button
-                  disabled = {actionLoading}
+                  disabled={actionLoading}
                   key={page}
                   onClick={() =>
                     runWithUiLoading(`Loading page ${page}...`, () => {
                       setCurrentPage(page);
                     })
                   }
-                   style={{
-                      backgroundColor:
-                        currentPageSafe === page
-                          ? "#0062a4"
-                          : actionLoading
-                          ? "#e0f2fe"
-                          : "white",
-                      color:
-                        currentPageSafe === page
-                          ? "white"
-                          : actionLoading
-                          ? "#93c5fd"
-                          : "#0062a4",
-                    }}
-                    className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
-                      actionLoading
-                        ? "opacity-60 cursor-not-allowed"
-                        : "hover:opacity-80"
-                    }`}
-                  >
-                    {actionLoading && currentPageSafe === page ? (
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      page
-                    )}
+                  style={{
+                    backgroundColor:
+                      currentPageSafe === page
+                        ? "#0062a4"
+                        : actionLoading
+                        ? "#e0f2fe"
+                        : "white",
+                    color:
+                      currentPageSafe === page
+                        ? "white"
+                        : actionLoading
+                        ? "#93c5fd"
+                        : "#0062a4",
+                  }}
+                  className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
+                    actionLoading
+                      ? "opacity-60 cursor-not-allowed"
+                      : "hover:opacity-80"
+                  }`}
+                >
+                  {actionLoading && currentPageSafe === page ? (
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    page
+                  )}
                 </button>
               ))}
 
@@ -677,13 +763,19 @@ export function WindHistoryPage({
                 }
                 disabled={currentPageSafe === totalPages || actionLoading}
                 style={{
-                  backgroundColor: currentPageSafe === totalPages || actionLoading ? "#e0f2fe" : "white",
-                  color: currentPageSafe === totalPages || actionLoading ? "#93c5fd" : "#0062a4",
+                  backgroundColor:
+                    currentPageSafe === totalPages || actionLoading
+                      ? "#e0f2fe"
+                      : "white",
+                  color:
+                    currentPageSafe === totalPages || actionLoading
+                      ? "#93c5fd"
+                      : "#0062a4",
                 }}
                 className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 ${
-                  currentPageSafe === 1 || actionLoading
-                    ? 'cursor-not-allowed'
-                    : 'hover:opacity-80'
+                  currentPageSafe === totalPages || actionLoading
+                    ? "cursor-not-allowed"
+                    : "hover:opacity-80"
                 } transition-colors`}
               >
                 Next
@@ -691,116 +783,69 @@ export function WindHistoryPage({
               </button>
             </div>
           </div>
-
-
-          {/* <div className="flex items-center justify-between">
-            <div style={{ color: '#0062a4' }} className="text-sm">
-              Showing {startIndex + 1} to {Math.min(endIndex, historicalData.length)} of{' '}
-              {historicalData.length} records
-            </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                style={{
-                  backgroundColor: currentPage === 1 ? '#e0f2fe' : 'white',
-                  color: currentPage === 1 ? '#93c5fd' : '#0062a4'
-                }}
-                className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 ${
-                  currentPage === 1 ? 'cursor-not-allowed' : 'hover:opacity-80'
-                } transition-colors`}
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Previous
-              </button>
-
-              {getPageNumbers().map((page) => (
-                <button
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  style={{
-                    backgroundColor: currentPage === page ? '#0062a4' : 'white',
-                    color: currentPage === page ? 'white' : '#0062a4'
-                  }}
-                  className="px-3 py-1.5 text-sm rounded-lg transition-colors hover:opacity-80"
-                >
-                  {page}
-                </button>
-              ))}
-
-              <button
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-                style={{
-                  backgroundColor: currentPage === totalPages ? '#e0f2fe' : 'white',
-                  color: currentPage === totalPages ? '#93c5fd' : '#0062a4'
-                }}
-                className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 ${
-                  currentPage === totalPages ? 'cursor-not-allowed' : 'hover:opacity-80'
-                } transition-colors`}
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div> */}
         </div>
       </div>
-      {/* Charts Sections */}
+      {/* Chart Section */}
       <div className="p-4">
-      <div className="flex items-center gap-3 mb-4">
-        <h2 style={{ backgroundColor: '#0062a4' }} className="rounded-xl p-5 shadow-lg text-white">Wind History</h2>
+        <div className="flex items-center gap-3 mb-4">
+          <h2
+            style={{ backgroundColor: "#0062a4" }}
+            className="rounded-xl p-5 shadow-lg text-white"
+          >
+            Wind History
+          </h2>
 
-        <select
-          value={year}
-          onChange={(e) => setYear(Number(e.target.value) as Year)}
-          style={{ backgroundColor: '#0062a4' }} className="rounded-xl p-3 shadow-lg text-white"
-        >
-          <option value={2022}>2022</option>
-          <option value={2023}>2023</option>
-          <option value={2024}>2024</option>
-          <option value={2025}>2025</option>
-          <option value={2026}>2026</option>
-        </select>
+          <select
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value) as Year)}
+            style={{ backgroundColor: "#0062a4" }}
+            className="rounded-xl p-3 shadow-lg text-white"
+          >
+            <option value={2022}>2022</option>
+            <option value={2023}>2023</option>
+            <option value={2024}>2024</option>
+            <option value={2025}>2025</option>
+            <option value={2026}>2026</option>
+          </select>
 
-        {loading && <span className="text-sm">Loading…</span>}
-        {err && <span className="text-sm text-red-600">{err}</span>}
+          {loading && <span className="text-sm">Loading…</span>}
+          {err && <span className="text-sm text-red-600">{err}</span>}
+        </div>
+
+        <div className="mb-10">
+          <h3 className="text-lg font-semibold mb-2">
+            Wind Speed (Actual vs Predicted)
+          </h3>
+          <TimelineChart
+            data={speedData}
+            series={{
+              actualKey: "windspeed",
+              predKey: "pred_windspeed",
+              actualLabel: "Actual",
+              predLabel: "Predicted",
+              yLabel: "Wind Speed (km/h)",
+            }}
+            height={420}
+          />
+        </div>
+
+        <div>
+          <h3 className="text-lg font-semibold mb-2">
+            Wind Direction (Actual vs Predicted)
+          </h3>
+          <TimelineChart
+            data={dirData}
+            series={{
+              actualKey: "winddir",
+              predKey: "pred_winddir",
+              actualLabel: "Actual",
+              predLabel: "Predicted",
+              yLabel: "Wind Direction (°)",
+            }}
+            height={420}
+          />
+        </div>
       </div>
-
-      {/* WIND SPEED */}
-      <div className="mb-10">
-        <h3 className="text-lg font-semibold mb-2">Wind Speed (Actual vs Predicted)</h3>
-        <TimelineChart
-          data={speedData}
-          series={{
-            actualKey: "windspeed",
-            predKey: "pred_windspeed",
-            actualLabel: "Actual",
-            predLabel: "Predicted",
-            yLabel: "Wind Speed (km/h)",
-          }}
-          height={420}
-        />
-      </div>
-
-      {/* WIND DIRECTION */}
-      <div>
-        <h3 className="text-lg font-semibold mb-2">Wind Direction (Actual vs Predicted)</h3>
-        <TimelineChart
-          data={dirData}
-          series={{
-            actualKey: "winddir",
-            predKey: "pred_winddir",
-            actualLabel: "Actual",
-            predLabel: "Predicted",
-            yLabel: "Wind Direction (°)",
-          }}
-          height={420}
-        />
-      </div>
-    </div>
-
     </div>
   );
 }
