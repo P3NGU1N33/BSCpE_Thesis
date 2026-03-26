@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 from supabase import create_client
 from supabase_predict_update import predict_missing_rows
-import asyncio
+# import asyncio
 
 
 
@@ -25,6 +25,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# @app.on_event("startup")
+# async def startup_predict():
+#     asyncio.create_task(asyncio.to_thread(
+#         predict_missing_rows,
+#         limit_rows=5000,
+#         upsert_batch=200
+#     ))
 
 @app.get("/history")
 def history(limit: int = 200, order: str = "desc"):
@@ -40,9 +47,4 @@ def history(limit: int = 200, order: str = "desc"):
 def predict_latest():
     return predict_missing_rows(limit_rows=5000, upsert_batch=200)
 
-@app.on_event("startup")
-async def run_on_startup():
-    print("Running prediction on startup...")
-    # If your function is sync, run in thread
-    await asyncio.to_thread(predict_missing_rows, limit_rows=5000, upsert_batch=200)
     

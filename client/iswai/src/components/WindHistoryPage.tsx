@@ -515,9 +515,8 @@ export function WindHistoryPage() {
           <CalendarDays className="w-4 h-4" />
           Select Date Range
         </button>
-      </div>
 
-      {showCalendar && (
+        {showCalendar && (
         <div className="mt-3 bg-white rounded-lg p-4 shadow-sm border border-blue-100 flex items-end gap-4 flex-wrap">
           <div>
             <label className="text-xs" style={{ color: "#0062a4" }}>
@@ -581,6 +580,10 @@ export function WindHistoryPage() {
           </button>
         </div>
       )}
+
+      </div>
+
+      
       {/* Data Table */}
       <div className="bg-white rounded-xl shadow-md border border-blue-100 overflow-hidden">
         <div className="overflow-x-auto">

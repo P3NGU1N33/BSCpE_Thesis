@@ -4,6 +4,7 @@ import { WindHistoryPanel } from './components/WindHistoryPanel';
 import { WindTipsPanel } from './components/WindTipsPanel';
 import { WindMainTipsPanel } from './components/WindMainTipsPanel';
 import { WindHistoryPage } from './components/WindHistoryPage';
+import { WeatherForecastPanel} from "./components/WeatherForecastPanel.tsx";
 import { Navigation } from 'lucide-react';
 import { supabase } from "./lib/supabase";
 import { degToCompass } from "./utils/wind";
@@ -20,12 +21,29 @@ interface HistoryRow {
   pred_timestamp: string | null;
 }
 
+type ForecastDay = {
+  datetime: string;
+  temp: number;
+  precipprob: number;
+  windspeed: number;
+  winddir: number;
+  icon?: string;
+};
+
+type VisualCrossingResponse = {
+  days?: ForecastDay[];
+};
+
 function App() {
   const [activeNav, setActiveNav] = useState('Wind Alert');
   //For Fetching
   const [latestRow, setLatestRow] = useState<HistoryRow | null>(null);
   const [latestLoading, setLatestLoading] = useState(false);
   const [latestErr, setLatestErr] = useState<string | null>(null);
+  //7-Day Forecast
+  const [forecastDays, setForecastDays] = useState<ForecastDay[]>([]);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastError, setForecastError] = useState<string | null>(null);
  
 
   useEffect(() => {
@@ -82,6 +100,51 @@ function App() {
       };
     }, []);
 
+    //Fetching for Weather Forecast
+    useEffect(() => {
+        let mounted = true;
+
+        async function fetchForecast() {
+          try {
+            setForecastLoading(true);
+            setForecastError(null);
+
+            const apiKey = import.meta.env.VITE_VISUAL_CROSSING_KEY;
+
+            const url =
+              `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/Talisay%2C%20Daanbantayan%2C%20Cebu?unitGroup=metric&include=days,current&key=${apiKey}&contentType=json`;
+
+            const res = await fetch(url);
+
+            if (!res.ok) {
+              throw new Error(`Forecast API error: ${res.status}`);
+            }
+
+            const data: VisualCrossingResponse = await res.json();
+
+            if (!mounted) return;
+
+            setForecastDays(Array.isArray(data.days) ? data.days.slice(0, 7) : []);
+          } catch (err) {
+            if (!mounted) return;
+            setForecastError(err instanceof Error ? err.message : "Failed to load forecast");
+          } finally {
+            if (mounted) setForecastLoading(false);
+          }
+        }
+
+        fetchForecast();
+
+        const interval = setInterval(fetchForecast, 1000 * 60 * 30);
+
+          return () => {
+            mounted = false;
+            clearInterval(interval);
+          };
+      }, []);
+        
+
+        
   // Mock data for current conditions
   const currentWind = useMemo(() => {
     if (!latestRow) return null;
@@ -243,8 +306,9 @@ function App() {
                   />  
                 </div>
 
+
                 {/* Safety Indicator Legend */}
-                <div className="bg-white/60 rounded-lg p-2 border" style={{ borderColor: '#0062a4' }}>
+                <div className="bg-white/60 rounded-lg p-2 border " style={{ borderColor: '#0062a4' }}>
                   <h4 className="text-xl font-bold mb-1.5" style={{ color: '#0062a4' }}>Safety Indicator Guidelines</h4>
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 font-sm text-l">
@@ -264,11 +328,21 @@ function App() {
               </div>
             </div>
 
+            
+
             {/* Right Column - History & Tips */}
             <div className="lg:col-span-2 flex flex-col space-y-3">
               <WindHistoryPanel
                 onNavigate={() => handleNavClick("Wind History")}
               />
+              {/* 7-Day Weather Forecast */}
+                <div className="mb-1.5 ">
+                  <WeatherForecastPanel
+                    days={forecastDays}
+                    loading={forecastLoading}
+                    error={forecastError}
+                  />
+                </div>
               <div className="flex-1">
                 <WindMainTipsPanel onNavigate={() => handleNavClick('Wind Tips')} />
               </div>
